@@ -1,0 +1,8 @@
+{
+  "permissions": {
+    "allow": [
+      "WebFetch(domain:open.dosm.gov.my)",
+      "WebFetch(domain:data.gov.my)"
+    ]
+  }
+}

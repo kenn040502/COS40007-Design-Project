@@ -1,0 +1,17 @@
+State,MAE,RMSE,MAPE (%),Stationary (train),Forecast 2030
+Sabah,0.0016,0.0019,0.41,False,0.3947
+Sarawak,0.0022,0.0028,0.56,False,0.3817
+Kelantan,0.0032,0.0039,0.83,True,0.3906
+Pulau Pinang,0.0044,0.0054,1.2,True,0.3729
+W.P. Putrajaya,0.0071,0.0085,1.94,False,0.3575
+Kedah,0.0082,0.009,2.29,False,0.359
+Johor,0.0097,0.0101,2.65,False,0.3643
+Perak,0.0095,0.0104,2.54,True,0.3704
+Negeri Sembilan,0.0136,0.0155,3.55,True,0.374
+Perlis,0.0155,0.0159,4.64,False,0.3369
+Melaka,0.0155,0.0163,4.12,True,0.3689
+Selangor,0.0127,0.0168,3.44,False,0.3537
+Terengganu,0.0159,0.0173,4.84,False,0.3257
+W.P. Kuala Lumpur,0.018,0.0196,5.01,False,0.3763
+Pahang,0.021,0.0216,6.58,False,0.3031
+W.P. Labuan,0.0522,0.0555,16.49,False,0.2818
