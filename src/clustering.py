@@ -26,12 +26,6 @@ os.makedirs(FIGURES_DIR, exist_ok=True)
 os.makedirs(MODELS_DIR, exist_ok=True)
 
 FEATURE_COLS = ["income_mean", "income_median", "expenditure_mean", "gini", "poverty"]
-CLUSTER_LABELS = {
-    0: "High Income, Low Poverty",
-    1: "Mid Income, Moderate Poverty",
-    2: "Low Income, High Poverty",
-    3: "High Inequality",
-}
 MAX_K = 10
 
 

@@ -130,7 +130,7 @@ def plot_poverty_cluster_boxplot(df_clustered: pd.DataFrame, save_path: str = No
     return fig
 
 
-def plot_poverty_change_heatmap(poverty_wide: pd.DataFrame, save_path: str = None):
+def plot_poverty_change_bar(poverty_wide: pd.DataFrame, save_path: str = None):
     """Heatmap of absolute poverty change 2019->2022 by state."""
     pivot = poverty_wide.groupby("state")["poverty_abs_change"].mean().reset_index()
     pivot = pivot.sort_values("poverty_abs_change", ascending=False)
@@ -204,7 +204,7 @@ def run_all(arima_results: dict = None, clustering_results: dict = None,
     cl_df = cluster_metrics_table(clustering_results)
     print(f"  Clustering metrics:\n{cl_df.to_string(index=False)}")
     plot_poverty_cluster_boxplot(df_kmeans, save_path=os.path.join(FIGURES_DIR, "eval_poverty_cluster.png"))
-    plot_poverty_change_heatmap(poverty_wide, save_path=os.path.join(FIGURES_DIR, "eval_poverty_change.png"))
+    plot_poverty_change_bar(poverty_wide, save_path=os.path.join(FIGURES_DIR, "eval_poverty_change.png"))
     plot_income_vs_gini_scatter(df_district, save_path=os.path.join(FIGURES_DIR, "eval_income_gini_scatter.png"))
 
     print("  Evaluation complete. Figures saved to outputs/figures/")

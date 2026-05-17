@@ -82,16 +82,6 @@ def interpolate_gini_annual(gini_df: pd.DataFrame) -> pd.DataFrame:
     return pd.DataFrame(records)
 
 
-def build_district_features(hies_df: pd.DataFrame) -> pd.DataFrame:
-    """Return feature matrix used for clustering."""
-    features = [
-        "income_mean", "income_median", "expenditure_mean",
-        "gini", "poverty", "savings_rate", "income_expenditure_ratio"
-    ]
-    df = hies_df[["state", "district"] + features].copy()
-    return df
-
-
 def run_all():
     print("Loading and preprocessing datasets...")
 

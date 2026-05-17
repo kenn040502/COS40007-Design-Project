@@ -8,8 +8,9 @@ Dynamic sections (state selector, table) use lightweight JSON API endpoints.
 import os
 import sys
 import json
+from functools import lru_cache
 import pandas as pd
-from flask import Flask, render_template, jsonify, request
+from flask import Flask, render_template, jsonify, request, send_from_directory
 
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 ROOT_DIR = os.path.join(BASE_DIR, "..")
@@ -19,24 +20,24 @@ FIGURES_DIR = os.path.join(ROOT_DIR, "outputs", "figures")
 MODELS_DIR = os.path.join(ROOT_DIR, "outputs", "models")
 PROCESSED_DIR = os.path.join(ROOT_DIR, "data", "processed")
 
-app = Flask(__name__, static_folder=os.path.join(FIGURES_DIR), template_folder="templates")
-app.config["FIGURES_DIR"] = FIGURES_DIR
+app = Flask(__name__, template_folder="templates")
 
 
-# ─── Helper: load cached results ─────────────────────────────────────────────
+# ─── Helpers: load and cache results (disk read once per process) ─────────────
 
+@lru_cache(maxsize=None)
 def _load_arima():
-    path = os.path.join(MODELS_DIR, "arima_results.json")
-    with open(path) as f:
+    with open(os.path.join(MODELS_DIR, "arima_results.json")) as f:
         return json.load(f)
 
 
+@lru_cache(maxsize=None)
 def _load_clustering():
-    path = os.path.join(MODELS_DIR, "clustering_results.json")
-    with open(path) as f:
+    with open(os.path.join(MODELS_DIR, "clustering_results.json")) as f:
         return json.load(f)
 
 
+@lru_cache(maxsize=None)
 def _load_df(name):
     return pd.read_csv(os.path.join(PROCESSED_DIR, name))
 
@@ -122,7 +123,6 @@ def api_poverty_states():
 
 @app.route("/figure/<path:filename>")
 def serve_figure(filename):
-    from flask import send_from_directory
     return send_from_directory(FIGURES_DIR, filename)
 
 

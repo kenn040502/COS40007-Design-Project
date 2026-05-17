@@ -49,7 +49,6 @@ def main():
     # Launch dashboard
     print("\nStarting web dashboard at http://localhost:5050 ...")
     print("Press Ctrl+C to stop.\n")
-    os.chdir(os.path.dirname(os.path.abspath(__file__)))
     from app.dashboard import app
     app.run(debug=False, port=5050)
 
