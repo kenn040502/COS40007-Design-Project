@@ -1,7 +1,7 @@
 """
 Master pipeline runner for Theme 3: Smart Government.
 Runs: preprocessing -> time series -> clustering -> evaluation
-Then launches the Flask dashboard.
+Then launches the Flask dashboard (unless --no-dashboard is passed).
 """
 
 import sys
@@ -45,6 +45,9 @@ def main():
     print(f"  Models  : outputs/models/")
     print(f"  Data    : data/processed/")
     print("=" * 65)
+
+    if "--no-dashboard" in sys.argv:
+        return
 
     # Launch dashboard
     print("\nStarting web dashboard at http://localhost:5050 ...")

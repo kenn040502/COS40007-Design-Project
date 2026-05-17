@@ -89,6 +89,75 @@
       text-align: center; font-size: 0.75rem; color: var(--muted);
       padding: 24px; margin-top: 20px;
     }
+
+    /* ── Time series live controls ── */
+    .ts-controls {
+      display: flex; gap: 28px; align-items: flex-end; flex-wrap: wrap; margin-bottom: 18px;
+    }
+    .ts-ctrl-group label {
+      display: block; font-size: 0.78rem; color: var(--muted);
+      margin-bottom: 5px; font-weight: 500;
+    }
+    .ts-ctrl-group input[type=range] {
+      width: 220px; accent-color: var(--primary); cursor: pointer; display: block;
+    }
+    .ts-ctrl-group .range-row {
+      display: flex; align-items: center; gap: 10px;
+    }
+    .ts-ctrl-group .range-val {
+      min-width: 80px; font-size: 0.82rem; font-weight: 700; color: var(--primary);
+    }
+
+    #ts-progress-wrap {
+      margin-bottom: 14px; overflow: hidden;
+      transition: max-height 0.3s ease, opacity 0.3s ease;
+      max-height: 60px; opacity: 1;
+    }
+    #ts-progress-wrap.hidden { max-height: 0; opacity: 0; }
+    #ts-progress-track {
+      height: 5px; background: var(--border); border-radius: 3px; overflow: hidden;
+    }
+    #ts-progress-fill {
+      height: 100%; background: var(--primary); border-radius: 3px;
+      transition: width 0.35s ease; width: 0%;
+    }
+    #ts-progress-label {
+      font-size: 0.75rem; color: var(--muted); margin-top: 5px;
+      white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+    }
+
+    /* ── Run pipeline modal ── */
+    #run-btn {
+      background: var(--accent); color: #fff; border: none; border-radius: 6px;
+      padding: 9px 20px; font-size: 0.88rem; font-weight: 600; cursor: pointer;
+      margin-left: auto; transition: opacity .15s;
+    }
+    #run-btn:disabled { opacity: 0.5; cursor: not-allowed; }
+    #run-btn.ready    { background: #16a34a; }
+
+    #pipeline-modal {
+      display: none; position: fixed; inset: 0;
+      background: rgba(0,0,0,0.45); z-index: 100;
+      align-items: center; justify-content: center;
+    }
+    #pipeline-modal.open { display: flex; }
+    #pipeline-box {
+      background: #fff; border-radius: 12px; width: 640px; max-width: 95vw;
+      padding: 28px; box-shadow: 0 8px 32px rgba(0,0,0,0.18);
+    }
+    #pipeline-box h3 { font-size: 1rem; font-weight: 700; color: var(--primary); margin-bottom: 14px; }
+    #pipeline-log {
+      background: #0f172a; color: #94a3b8; font-family: monospace;
+      font-size: 0.78rem; height: 260px; overflow-y: auto;
+      border-radius: 6px; padding: 12px; white-space: pre-wrap;
+    }
+    #pipeline-log .ok   { color: #4ade80; }
+    #pipeline-log .err  { color: #f87171; }
+    #pipeline-status { margin-top: 12px; font-size: 0.85rem; color: var(--muted); }
+    #pipeline-close {
+      margin-top: 14px; padding: 8px 18px; border: 1px solid var(--border);
+      border-radius: 6px; background: #fff; cursor: pointer; font-size: 0.85rem;
+    }
   </style>
 </head>
 <body>
@@ -98,7 +167,18 @@
     <h1>🇲🇾 Smart Government — Malaysian Socioeconomic AI Analyser</h1>
     <p>COS40007 Design Project 2026 · Theme 3 · DOSM Open Data</p>
   </div>
+  <button id="run-btn" onclick="openRunModal()">▶ Run Analysis</button>
 </header>
+
+<!-- Pipeline progress modal -->
+<div id="pipeline-modal">
+  <div id="pipeline-box">
+    <h3>Running Analysis Pipeline</h3>
+    <div id="pipeline-log"></div>
+    <div id="pipeline-status">Starting…</div>
+    <button id="pipeline-close" onclick="closeRunModal()" disabled>Close</button>
+  </div>
+</div>
 
 <nav>
   <button class="active" onclick="showTab('overview',this)">Overview</button>
@@ -108,6 +188,11 @@
 </nav>
 
 <main>
+
+<div id="not-ready-banner" style="display:none; background:#fef3c7; border:1px solid #f59e0b;
+     border-radius:8px; padding:14px 20px; margin-bottom:20px; font-size:0.88rem; color:#92400e;">
+  ⚠ Pipeline outputs not found. Click <strong>▶ Run Analysis</strong> in the header to generate results.
+</div>
 
 <!-- ══════════════════ OVERVIEW ══════════════════ -->
 <div id="tab-overview" class="tab-panel active">
@@ -147,16 +232,47 @@
 <!-- ══════════════════ TIME SERIES ══════════════════ -->
 <div id="tab-timeseries" class="tab-panel">
   <div class="card">
-    <h2>ARIMA Gini Coefficient Forecast by State</h2>
+    <h2>ARIMA Live Gini Coefficient Forecast</h2>
     <p class="desc">
-      ARIMA(2,1,2) fitted per state on annual interpolated Gini data (1974–2022).
-      Last 5 years withheld as test set. Forecast horizon: 2023–2030.
+      ARIMA(2,1,2) computed on-demand per state. Adjust the state, forecast horizon, or
+      history window — results stream in real time.
     </p>
-    <label>Select state:
-      <select id="ts-state-select" onchange="loadForecast()"></select>
-    </label>
+
+    <div class="ts-controls">
+      <div class="ts-ctrl-group">
+        <label>State</label>
+        <select id="ts-state-select" onchange="loadForecastLive()"></select>
+      </div>
+
+      <div class="ts-ctrl-group">
+        <label>Forecast horizon — <span id="ts-horizon-val">8 years</span></label>
+        <div class="range-row">
+          <span style="font-size:0.75rem;color:var(--muted)">1y</span>
+          <input type="range" id="ts-horizon-slider" min="1" max="20" value="8"
+                 oninput="document.getElementById('ts-horizon-val').textContent=this.value+' years'"
+                 onchange="loadForecastLive()" />
+          <span style="font-size:0.75rem;color:var(--muted)">20y</span>
+        </div>
+      </div>
+
+      <div class="ts-ctrl-group">
+        <label>History window</label>
+        <select id="ts-history-range" onchange="rerenderForecastChart()">
+          <option value="all">All years (1974–)</option>
+          <option value="30">Last 30 years</option>
+          <option value="20">Last 20 years</option>
+          <option value="10">Last 10 years</option>
+        </select>
+      </div>
+    </div>
+
+    <div id="ts-progress-wrap" class="hidden">
+      <div id="ts-progress-track"><div id="ts-progress-fill"></div></div>
+      <div id="ts-progress-label">Initialising…</div>
+    </div>
+
     <div id="ts-metrics" class="metric-row"></div>
-    <div id="chart-ts-forecast" style="height:420px;"></div>
+    <div id="chart-ts-forecast" style="height:440px;"></div>
   </div>
 
   <div class="card">
@@ -295,62 +411,155 @@ async function loadOverview() {
   }, { responsive: true });
 }
 
-// ─── Time Series ───────────────────────────────────────────────────────────
+// ─── Time Series — live SSE streaming ─────────────────────────────────────
+let _liveFetchController = null;
+let _lastForecastData    = null;
+
 async function loadTsStates() {
-  const res = await fetch('/api/ts/states');
+  const res    = await fetch('/api/ts/states');
   const states = await res.json();
-  const sel = document.getElementById('ts-state-select');
+  const sel    = document.getElementById('ts-state-select');
   sel.innerHTML = states.map(s => `<option value="${s}">${s}</option>`).join('');
-  loadForecast();
+  loadForecastLive();
 }
 
-async function loadForecast() {
-  const state = document.getElementById('ts-state-select').value;
-  const res = await fetch('/api/ts/forecast?state=' + encodeURIComponent(state));
-  const d = await res.json();
-  if (d.error) return;
+function setProgress(pct, label) {
+  const wrap = document.getElementById('ts-progress-wrap');
+  wrap.classList.remove('hidden');
+  document.getElementById('ts-progress-fill').style.width = pct + '%';
+  document.getElementById('ts-progress-label').textContent = label;
+}
 
-  const m = d.metrics;
-  document.getElementById('ts-metrics').innerHTML = `
-    <div class="metric-chip">MAE <strong>${m.MAE}</strong></div>
-    <div class="metric-chip">RMSE <strong>${m.RMSE}</strong></div>
-    <div class="metric-chip">MAPE <strong>${m['MAPE']}%</strong></div>
-    <div class="metric-chip">Stationary <strong>${d.stationarity.is_stationary ? '✅ Yes' : '⚠ No'}</strong></div>
-  `;
+function hideProgress() {
+  document.getElementById('ts-progress-wrap').classList.add('hidden');
+  document.getElementById('ts-progress-fill').style.width = '0%';
+}
 
-  Plotly.newPlot('chart-ts-forecast', [
-    { name: 'Historical (train)', x: d.train.years, y: d.train.gini,
-      mode: 'lines+markers', marker: { size: 4, color: '#1a3c6e' }, line: { color: '#1a3c6e' } },
-    { name: 'Actual (test)', x: d.test.years, y: d.test.actual,
-      mode: 'lines+markers', marker: { size: 6, color: '#22c55e' }, line: { color: '#22c55e' } },
-    { name: 'Predicted (test)', x: d.test.years, y: d.test.predicted,
-      mode: 'lines+markers', marker: { size: 6, color: '#ef4444', symbol: 'diamond' },
-      line: { color: '#ef4444', dash: 'dash' } },
-    { name: 'Forecast 2023–2030', x: d.forecast.years, y: d.forecast.gini,
-      mode: 'lines+markers', marker: { size: 7, color: '#a855f7', symbol: 'triangle-up' },
-      line: { color: '#a855f7', dash: 'dot', width: 2 } },
+function renderForecastChart(d) {
+  const state      = document.getElementById('ts-state-select').value;
+  const histMode   = document.getElementById('ts-history-range').value;
+  const forecastTo = d.forecast.years.at(-1);
+  const cutYear    = histMode === 'all' ? 0 : forecastTo - parseInt(histMode);
+
+  const clip = (years, vals) => {
+    if (!cutYear) return [years, vals];
+    const idx = years.findIndex(y => y >= cutYear);
+    return idx < 0 ? [years, vals] : [years.slice(idx), vals.slice(idx)];
+  };
+
+  const [trainY, trainG] = clip(d.train.years, d.train.gini);
+  const forecastLabel    = `Forecast ${d.forecast.years[0]}–${forecastTo}`;
+
+  Plotly.react('chart-ts-forecast', [
+    { name: 'Historical (train)',  x: trainY,           y: trainG,
+      mode: 'lines+markers', marker: { size: 3, color: '#1a3c6e' },
+      line: { color: '#1a3c6e', width: 1.5 } },
+    { name: 'Actual (test)',       x: d.test.years,     y: d.test.actual,
+      mode: 'lines+markers', marker: { size: 7, color: '#22c55e' },
+      line: { color: '#22c55e', width: 2 } },
+    { name: 'Predicted (test)',    x: d.test.years,     y: d.test.predicted,
+      mode: 'lines+markers', marker: { size: 7, color: '#ef4444', symbol: 'diamond' },
+      line: { color: '#ef4444', dash: 'dash', width: 2 } },
+    { name: forecastLabel,         x: d.forecast.years, y: d.forecast.gini,
+      mode: 'lines+markers', marker: { size: 8, color: '#a855f7', symbol: 'triangle-up' },
+      line: { color: '#a855f7', dash: 'dot', width: 2.5 } },
   ], {
-    title: `Gini Forecast — ${state}`,
+    title: `Gini Forecast — ${state}  (ARIMA${JSON.stringify(d.arima_order)})`,
     xaxis: { title: 'Year' },
-    yaxis: { title: 'Gini Coefficient', range: [0.2, 0.6] },
-    shapes: [{ type: 'line', x0: d.test.years[0], x1: d.test.years[0],
-                yref: 'paper', y0: 0, y1: 1,
-                line: { color: 'grey', dash: 'dot', width: 1 } }],
-    legend: { orientation: 'h', y: -0.22 },
-    margin: { t: 40 },
+    yaxis: { title: 'Gini Coefficient', range: [0.18, 0.62] },
+    shapes: [{
+      type: 'line', x0: d.test.years[0], x1: d.test.years[0],
+      yref: 'paper', y0: 0, y1: 1,
+      line: { color: '#9ca3af', dash: 'dot', width: 1.2 },
+    }],
+    annotations: [{
+      x: d.test.years[0], y: 1, yref: 'paper', xanchor: 'left',
+      text: 'test split', showarrow: false,
+      font: { size: 10, color: '#9ca3af' },
+    }],
+    legend: { orientation: 'h', y: -0.24 },
+    margin: { t: 48, r: 20 },
   }, { responsive: true });
 }
 
+function updateForecastMetrics(d) {
+  const m = d.metrics;
+  const s = d.stationarity;
+  document.getElementById('ts-metrics').innerHTML = `
+    <div class="metric-chip">MAE <strong>${m.MAE}</strong></div>
+    <div class="metric-chip">RMSE <strong>${m.RMSE}</strong></div>
+    <div class="metric-chip">MAPE <strong>${m.MAPE}%</strong></div>
+    <div class="metric-chip">ADF p-value <strong>${s.p_value}</strong></div>
+    <div class="metric-chip">Stationary <strong>${s.is_stationary ? '✅ Yes' : '⚠ No'}</strong></div>
+  `;
+}
+
+function rerenderForecastChart() {
+  if (_lastForecastData) renderForecastChart(_lastForecastData);
+}
+
+async function loadForecastLive() {
+  const state   = document.getElementById('ts-state-select').value;
+  const horizon = document.getElementById('ts-horizon-slider').value;
+  if (!state) return;
+
+  // Cancel any in-flight request
+  if (_liveFetchController) _liveFetchController.abort();
+  _liveFetchController = new AbortController();
+
+  setProgress(5, 'Initialising…');
+
+  try {
+    const res = await fetch(
+      `/api/ts/live?state=${encodeURIComponent(state)}&horizon=${horizon}`,
+      { signal: _liveFetchController.signal }
+    );
+
+    const reader  = res.body.getReader();
+    const decoder = new TextDecoder();
+    let buf = '';
+
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      buf += decoder.decode(value, { stream: true });
+      const chunks = buf.split('\n\n');
+      buf = chunks.pop();
+
+      for (const chunk of chunks) {
+        if (!chunk.startsWith('data: ')) continue;
+        let evt;
+        try { evt = JSON.parse(chunk.slice(6)); } catch { continue; }
+
+        if (evt.type === 'progress') {
+          setProgress(evt.pct, evt.step);
+        } else if (evt.type === 'result') {
+          _lastForecastData = evt.data;
+          setProgress(100, 'Done');
+          renderForecastChart(evt.data);
+          updateForecastMetrics(evt.data);
+          setTimeout(hideProgress, 900);
+        } else if (evt.type === 'error') {
+          setProgress(0, '⚠ ' + evt.message);
+        }
+      }
+    }
+  } catch (e) {
+    if (e.name !== 'AbortError') setProgress(0, '⚠ ' + e.message);
+  }
+}
+
 async function loadTsMetricsTable() {
-  const res = await fetch('/api/ts/metrics');
+  const res  = await fetch('/api/ts/metrics');
   const data = await res.json();
   const tbody = document.querySelector('#ts-metrics-table tbody');
   tbody.innerHTML = data.map(r => {
-    const badge = r['Forecast 2030'] > 0.4
-      ? `<span class="badge badge-red">${r['Forecast 2030']}</span>`
-      : r['Forecast 2030'] > 0.35
-      ? `<span class="badge badge-yellow">${r['Forecast 2030']}</span>`
-      : `<span class="badge badge-green">${r['Forecast 2030']}</span>`;
+    const v     = r['Forecast 2030'];
+    const badge = v > 0.4
+      ? `<span class="badge badge-red">${v}</span>`
+      : v > 0.35
+      ? `<span class="badge badge-yellow">${v}</span>`
+      : `<span class="badge badge-green">${v}</span>`;
     return `<tr>
       <td>${r.State}</td><td>${r.MAE}</td><td>${r.RMSE}</td>
       <td>${r['MAPE (%)']}</td><td>${badge}</td>
@@ -452,14 +661,91 @@ async function loadPovertyTable() {
   }).join('');
 }
 
+// ─── Pipeline trigger ──────────────────────────────────────────────────────
+function openRunModal() {
+  document.getElementById('pipeline-modal').classList.add('open');
+  document.getElementById('pipeline-log').innerHTML = '';
+  document.getElementById('pipeline-status').textContent = 'Starting…';
+  document.getElementById('pipeline-close').disabled = true;
+  document.getElementById('run-btn').disabled = true;
+
+  const log = document.getElementById('pipeline-log');
+  function append(text, cls) {
+    const line = document.createElement('div');
+    if (cls) line.className = cls;
+    line.textContent = text;
+    log.appendChild(line);
+    log.scrollTop = log.scrollHeight;
+  }
+
+  fetch('/api/run', { method: 'POST' }).then(res => {
+    if (!res.ok) {
+      res.json().then(d => append('ERROR: ' + (d.error || res.status), 'err'));
+      document.getElementById('pipeline-close').disabled = false;
+      document.getElementById('run-btn').disabled = false;
+      return;
+    }
+    const reader = res.body.getReader();
+    const decoder = new TextDecoder();
+    let buf = '';
+
+    function read() {
+      reader.read().then(({ done, value }) => {
+        if (done) return;
+        buf += decoder.decode(value, { stream: true });
+        const parts = buf.split('\n\n');
+        buf = parts.pop();
+        parts.forEach(part => {
+          if (part.startsWith('event: done')) {
+            const code = part.split('data: ')[1]?.trim();
+            const ok = code === '0';
+            document.getElementById('pipeline-status').textContent =
+              ok ? '✅ Pipeline complete — reloading data…' : '❌ Pipeline failed (see log)';
+            document.getElementById('pipeline-close').disabled = false;
+            document.getElementById('run-btn').disabled = false;
+            if (ok) setTimeout(() => location.reload(), 1500);
+          } else if (part.startsWith('data: ')) {
+            const line = part.slice(6);
+            const cls = line.startsWith('ERROR') || line.startsWith('Traceback') ? 'err'
+                       : line.includes('complete') || line.startsWith('[') ? 'ok'
+                       : null;
+            append(line, cls);
+          }
+        });
+        read();
+      });
+    }
+    read();
+  }).catch(err => {
+    append('ERROR: ' + err, 'err');
+    document.getElementById('pipeline-close').disabled = false;
+    document.getElementById('run-btn').disabled = false;
+  });
+}
+
+function closeRunModal() {
+  document.getElementById('pipeline-modal').classList.remove('open');
+}
+
 // ─── Init ──────────────────────────────────────────────────────────────────
 (async () => {
-  await loadOverview();
-  await loadTsStates();
-  await loadTsMetricsTable();
-  await loadClusterMetrics();
-  await loadClusterChart();
-  await loadPovertyStates();
+  // Check if pipeline has been run; disable Run btn label if outputs exist
+  try {
+    const s = await fetch('/api/status');
+    const { ready } = await s.json();
+    if (ready) {
+      document.getElementById('run-btn').classList.add('ready');
+    } else {
+      document.getElementById('not-ready-banner').style.display = 'block';
+    }
+  } catch (_) {}
+
+  try { await loadOverview(); }         catch(_) {}
+  try { await loadTsStates(); }          catch(_) {}
+  try { await loadTsMetricsTable(); }    catch(_) {}
+  try { await loadClusterMetrics(); }    catch(_) {}
+  try { await loadClusterChart(); }      catch(_) {}
+  try { await loadPovertyStates(); }     catch(_) {}
 })();
 </script>
 </body>

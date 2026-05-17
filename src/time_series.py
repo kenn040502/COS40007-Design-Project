@@ -54,6 +54,73 @@ def evaluate_forecast(actual: pd.Series, predicted: np.ndarray) -> dict:
     return {"MAE": round(mae, 4), "RMSE": round(rmse, 4), "MAPE": round(mape, 2)}
 
 
+def run_live(state: str, gini_annual_df: pd.DataFrame,
+             horizon: int = FORECAST_HORIZON, order: tuple = ARIMA_ORDER):
+    """
+    Generator for SSE streaming. Yields progress and result dicts for one state.
+    Each dict has a "type" key: "progress" | "result" | "error".
+    """
+    grp = gini_annual_df[gini_annual_df["state"] == state].set_index("year")["gini"].sort_index()
+
+    if len(grp) < 10:
+        yield {"type": "error", "message": f"Not enough data for {state} (need ≥10 observations)"}
+        return
+
+    yield {"type": "progress", "step": "Running ADF stationarity test…", "pct": 15}
+    train, test = train_test_split_ts(grp)
+    stat = check_stationarity(train)
+    stat_label = "stationary" if stat["is_stationary"] else "non-stationary"
+    yield {"type": "progress", "step": f"ADF p={stat['p_value']} ({stat_label})", "pct": 30}
+
+    yield {"type": "progress", "step": f"Fitting ARIMA{order} on training data…", "pct": 46}
+    try:
+        fitted = fit_arima(train, order)
+    except Exception as exc:
+        yield {"type": "error", "message": f"ARIMA fit failed: {exc}"}
+        return
+
+    yield {"type": "progress", "step": "Evaluating on held-out test years…", "pct": 62}
+    test_pred = fitted.forecast(steps=len(test))
+    metrics = evaluate_forecast(test, test_pred)
+    yield {"type": "progress",
+           "step": f"RMSE={metrics['RMSE']}  MAPE={metrics['MAPE']}%", "pct": 78}
+
+    end_year = int(grp.index.max()) + horizon
+    yield {"type": "progress",
+           "step": f"Refitting on full series → forecasting to {end_year}…", "pct": 91}
+    final_model = fit_arima(grp, order)
+    future_pred = final_model.forecast(steps=horizon)
+    future_years = list(range(int(grp.index.max()) + 1, int(grp.index.max()) + horizon + 1))
+
+    yield {
+        "type": "result",
+        "pct": 100,
+        "data": {
+            "train": {
+                "years": list(map(int, train.index)),
+                "gini":  [float(v) for v in train.values],
+            },
+            "test": {
+                "years":     list(map(int, test.index)),
+                "actual":    [float(v) for v in test.values],
+                "predicted": [float(v) for v in test_pred],
+            },
+            "forecast": {
+                "years": future_years,
+                "gini":  [float(v) for v in future_pred],
+            },
+            "metrics": {k: float(v) for k, v in metrics.items()},
+            "stationarity": {
+                "adf_stat":     float(stat["adf_stat"]),
+                "p_value":      float(stat["p_value"]),
+                "is_stationary": bool(stat["is_stationary"]),
+            },
+            "arima_order": list(order),
+            "horizon": horizon,
+        },
+    }
+
+
 def run_forecast_all_states(gini_annual_df: pd.DataFrame) -> dict:
     """
     Fit ARIMA per state. Returns dict of results keyed by state name.

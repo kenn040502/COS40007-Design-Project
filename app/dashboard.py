@@ -8,9 +8,12 @@ Dynamic sections (state selector, table) use lightweight JSON API endpoints.
 import os
 import sys
 import json
+import subprocess
+import threading
+import queue
 from functools import lru_cache
 import pandas as pd
-from flask import Flask, render_template, jsonify, request, send_from_directory
+from flask import Flask, render_template, jsonify, request, send_from_directory, Response, stream_with_context
 
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 ROOT_DIR = os.path.join(BASE_DIR, "..")
@@ -42,6 +45,22 @@ def _load_df(name):
     return pd.read_csv(os.path.join(PROCESSED_DIR, name))
 
 
+def _pipeline_ready():
+    """Return True if pipeline outputs exist and are readable."""
+    required = [
+        os.path.join(MODELS_DIR, "arima_results.json"),
+        os.path.join(MODELS_DIR, "clustering_results.json"),
+        os.path.join(PROCESSED_DIR, "hies_state_clean.csv"),
+        os.path.join(PROCESSED_DIR, "districts_kmeans_clustered.csv"),
+        os.path.join(PROCESSED_DIR, "poverty_district_wide.csv"),
+    ]
+    return all(os.path.exists(p) for p in required)
+
+
+def _not_ready():
+    return jsonify({"error": "Pipeline has not been run yet. POST /api/run to start it."}), 503
+
+
 # ─── Routes ──────────────────────────────────────────────────────────────────
 
 @app.route("/")
@@ -49,20 +68,31 @@ def index():
     return render_template("index.html")
 
 
+@app.route("/api/status")
+def api_status():
+    return jsonify({"ready": _pipeline_ready()})
+
+
 @app.route("/api/overview")
 def api_overview():
+    if not _pipeline_ready():
+        return _not_ready()
     df = _load_df("hies_state_clean.csv")
     return jsonify(df.to_dict(orient="records"))
 
 
 @app.route("/api/ts/states")
 def api_ts_states():
+    if not _pipeline_ready():
+        return _not_ready()
     results = _load_arima()
     return jsonify(sorted([s for s, r in results.items() if "error" not in r]))
 
 
 @app.route("/api/ts/forecast")
 def api_ts_forecast():
+    if not _pipeline_ready():
+        return _not_ready()
     state = request.args.get("state", "Johor")
     results = _load_arima()
     if state not in results:
@@ -85,6 +115,8 @@ def api_ts_forecast():
 
 @app.route("/api/ts/metrics")
 def api_ts_metrics():
+    if not _pipeline_ready():
+        return _not_ready()
     path = os.path.join(MODELS_DIR, "ts_metrics_summary.csv")
     df = pd.read_csv(path)
     return jsonify(df.to_dict(orient="records"))
@@ -92,6 +124,8 @@ def api_ts_metrics():
 
 @app.route("/api/cluster/districts")
 def api_cluster_districts():
+    if not _pipeline_ready():
+        return _not_ready()
     df = _load_df("districts_kmeans_clustered.csv")
     state = request.args.get("state", None)
     if state:
@@ -101,6 +135,8 @@ def api_cluster_districts():
 
 @app.route("/api/cluster/metrics")
 def api_cluster_metrics():
+    if not _pipeline_ready():
+        return _not_ready()
     path = os.path.join(MODELS_DIR, "cluster_metrics_summary.csv")
     df = pd.read_csv(path)
     return jsonify(df.to_dict(orient="records"))
@@ -108,6 +144,8 @@ def api_cluster_metrics():
 
 @app.route("/api/poverty/districts")
 def api_poverty_districts():
+    if not _pipeline_ready():
+        return _not_ready()
     df = _load_df("poverty_district_wide.csv")
     state = request.args.get("state", None)
     if state:
@@ -117,13 +155,112 @@ def api_poverty_districts():
 
 @app.route("/api/poverty/states")
 def api_poverty_states():
+    if not _pipeline_ready():
+        return _not_ready()
     df = _load_df("hies_district_clean.csv")
     return jsonify(sorted(df["state"].unique().tolist()))
+
+
+@app.route("/api/ts/live")
+def api_ts_live():
+    """SSE endpoint — runs ARIMA live for one state and streams progress events."""
+    state = request.args.get("state", "Johor")
+    try:
+        horizon = min(max(int(request.args.get("horizon", 8)), 1), 30)
+    except ValueError:
+        horizon = 8
+
+    gini_path = os.path.join(PROCESSED_DIR, "gini_state_annual.csv")
+
+    def generate():
+        from src.time_series import run_live
+        if not os.path.exists(gini_path):
+            yield f'data: {json.dumps({"type": "error", "message": "Processed data not found — run the pipeline first."})}\n\n'
+            return
+        gini_df = _load_df("gini_state_annual.csv")
+        for event in run_live(state, gini_df, horizon):
+            yield f"data: {json.dumps(event)}\n\n"
+
+    return Response(
+        stream_with_context(generate()),
+        mimetype="text/event-stream",
+        headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
+    )
 
 
 @app.route("/figure/<path:filename>")
 def serve_figure(filename):
     return send_from_directory(FIGURES_DIR, filename)
+
+
+# ─── Pipeline trigger with Server-Sent Events streaming ──────────────────────
+
+_pipeline_lock = threading.Lock()
+_pipeline_running = False
+
+
+@app.route("/api/run", methods=["POST"])
+def api_run_pipeline():
+    """
+    Spawn the pipeline as a subprocess and stream stdout line-by-line
+    back to the browser via Server-Sent Events (SSE).
+    Only one pipeline run is allowed at a time.
+    """
+    global _pipeline_running
+    if not _pipeline_lock.acquire(blocking=False):
+        return jsonify({"error": "Pipeline is already running."}), 409
+
+    _pipeline_running = True
+    log_queue = queue.Queue()
+    pipeline_script = os.path.join(ROOT_DIR, "run_pipeline.py")
+
+    def _run():
+        try:
+            proc = subprocess.Popen(
+                [sys.executable, "-u", pipeline_script, "--no-dashboard"],
+                stdout=subprocess.PIPE,
+                stderr=subprocess.STDOUT,
+                text=True,
+                cwd=ROOT_DIR,
+            )
+            for line in proc.stdout:
+                log_queue.put(line.rstrip())
+            proc.wait()
+            log_queue.put(f"__EXIT__{proc.returncode}")
+        except Exception as e:
+            log_queue.put(f"__EXIT__1")
+            log_queue.put(f"ERROR: {e}")
+        finally:
+            # Clear lru_cache so next requests load fresh results
+            _load_arima.cache_clear()
+            _load_clustering.cache_clear()
+            _load_df.cache_clear()
+            global _pipeline_running
+            _pipeline_running = False
+            _pipeline_lock.release()
+
+    thread = threading.Thread(target=_run, daemon=True)
+    thread.start()
+
+    def _stream():
+        yield "retry: 1000\n\n"
+        while True:
+            try:
+                line = log_queue.get(timeout=60)
+            except queue.Empty:
+                yield "data: [timeout]\n\n"
+                break
+            if line.startswith("__EXIT__"):
+                code = line.split("__")[2]
+                yield f"event: done\ndata: {code}\n\n"
+                break
+            yield f"data: {line}\n\n"
+
+    return Response(
+        stream_with_context(_stream()),
+        mimetype="text/event-stream",
+        headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
+    )
 
 
 if __name__ == "__main__":
