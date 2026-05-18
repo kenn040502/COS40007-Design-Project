@@ -24,7 +24,21 @@
       "Bash(\"C:/Program Files/Python310/python.exe\" -m pip install flask)",
       "Bash(python -c \"import flask; print\\('flask', flask.__version__\\)\")",
       "Bash(python app/dashboard.py)",
-      "Bash(python -c \"import urllib.request; r=urllib.request.urlopen\\('http://localhost:5050/api/overview'\\); print\\('HTTP', r.status\\); import json; data=json.loads\\(r.read\\(\\)\\); print\\('States:', len\\(data\\)\\)\")"
+      "Bash(python -c \"import urllib.request; r=urllib.request.urlopen\\('http://localhost:5050/api/overview'\\); print\\('HTTP', r.status\\); import json; data=json.loads\\(r.read\\(\\)\\); print\\('States:', len\\(data\\)\\)\")",
+      "Bash(python -c \"import json; d=json.load\\(open\\('outputs/models/arima_results.json'\\)\\); [print\\(f'{s}: MAE={r[\\\\\"metrics\\\\\"][\\\\\"MAE\\\\\"]}, RMSE={r[\\\\\"metrics\\\\\"][\\\\\"RMSE\\\\\"]}, MAPE={r[\\\\\"metrics\\\\\"][\\\\\"MAPE\\\\\"]}'\\) for s,r in d.items\\(\\) if 'metrics' in r]\")",
+      "Bash(pip show *)",
+      "Bash(python -c \"import statsmodels; print\\(statsmodels.__version__\\)\")",
+      "Bash(Remove-Item outputs\\\\figures\\\\*.png -Force)",
+      "Bash(Remove-Item outputs\\\\models\\\\*.json -Force)",
+      "Bash(Remove-Item outputs\\\\models\\\\*.csv -Force)",
+      "Bash(Write-Output \"Cleaned\")",
+      "Bash(cd \"c:\\\\Users\\\\User\\\\Documents\\\\GitHub\\\\COS40007-Design-Project\" && rm -f outputs/figures/*.png outputs/models/*.json outputs/models/*.csv && echo \"Cleaned\")",
+      "Bash(python src/time_series.py)",
+      "Bash(python src/evaluation.py)",
+      "Bash(python src/clustering.py)"
+    ],
+    "additionalDirectories": [
+      "C:\\Users\\User\\Documents\\GitHub\\COS40007-Design-Project\\outputs\\figures"
     ]
   }
 }
