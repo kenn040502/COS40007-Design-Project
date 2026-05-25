@@ -2,12 +2,20 @@
 Master pipeline runner for Theme 3: Smart Government.
 Runs: preprocessing -> time series -> clustering -> evaluation
 Then launches the Flask dashboard (unless --no-dashboard is passed).
+
+Datasets used:
+  cpi_2d_inflation.csv  - Monthly national CPI inflation by division
+  cpi_2d_state.csv      - Monthly CPI index by state and division
+  fuelprice.csv         - Weekly retail fuel prices
+  hh_income_state.csv   - Survey-based household income by state
 """
 
 import sys
 import os
 
-sys.path.insert(0, os.path.dirname(__file__))
+# Always run from the project root, regardless of where Python was invoked from
+os.chdir(os.path.dirname(os.path.abspath(__file__)))
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 from src.preprocessing import run_all as preprocess
 from src.time_series import run_all as run_ts
@@ -16,32 +24,38 @@ from src.evaluation import run_all as run_evaluation
 
 
 def main():
+    root = os.path.dirname(__file__)
+    os.makedirs(os.path.join(root, "outputs", "figures"), exist_ok=True)
+    os.makedirs(os.path.join(root, "outputs", "models"), exist_ok=True)
+    os.makedirs(os.path.join(root, "data", "processed"), exist_ok=True)
+
     print("=" * 65)
-    print("  THEME 3: SMART GOVERNMENT — SOCIOECONOMIC AI ANALYSER")
+    print("  THEME 3: SMART GOVERNMENT — MALAYSIAN COST OF LIVING AI")
     print("=" * 65)
 
     print("\n[1/4] Preprocessing...")
-    hies_district, hies_state, poverty_long, poverty_wide, gini_state, gini_annual = preprocess()
+    cpi_inflation, cpi_state, fuelprice, income_state, overall_inflation, state_features = preprocess()
 
-    print("\n[2/4] Time Series Forecasting (ARIMA)...")
-    arima_results = run_ts(gini_annual)
+    print("\n[2/4] Time Series Forecasting (ARIMA — National CPI Inflation)...")
+    arima_results = run_ts(overall_inflation, fuelprice)
 
-    print("\n[3/4] Clustering (K-Means + Hierarchical)...")
-    cluster_results = run_clustering(hies_district)
+    print("\n[3/4] Clustering (K-Means + Hierarchical — Malaysian States)...")
+    cluster_results = run_clustering(state_features)
 
     print("\n[4/4] Evaluation & Visualisation...")
     run_evaluation(
         arima_results=arima_results,
         clustering_results=cluster_results,
         df_kmeans=cluster_results["df_kmeans"],
-        gini_df=gini_state,
-        poverty_wide=poverty_wide,
-        df_district=hies_district,
+        cpi_state_df=cpi_state,
+        cpi_inflation_df=cpi_inflation,
+        state_features_df=cluster_results["df_kmeans"],
     )
 
+    figures_dir = os.path.join(root, "outputs", "figures")
     print("\n" + "=" * 65)
     print("  Pipeline complete!")
-    print(f"  Figures : outputs/figures/  ({len(os.listdir('outputs/figures'))} files)")
+    print(f"  Figures : outputs/figures/  ({len(os.listdir(figures_dir))} files)")
     print(f"  Models  : outputs/models/")
     print(f"  Data    : data/processed/")
     print("=" * 65)
@@ -49,7 +63,6 @@ def main():
     if "--no-dashboard" in sys.argv:
         return
 
-    # Launch dashboard
     print("\nStarting web dashboard at http://localhost:5050 ...")
     print("Press Ctrl+C to stop.\n")
     from app.dashboard import app

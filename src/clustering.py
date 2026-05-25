@@ -1,7 +1,15 @@
 """
 Clustering module.
-Applies K-Means and Hierarchical clustering to 160 Malaysian districts
-using HIES district-level features: income, expenditure, gini, poverty.
+
+Applies K-Means and Hierarchical (Ward) clustering to 16 Malaysian states
+using CPI and income features derived from preprocessing.
+
+Features used:
+  mean_cpi_index       - average overall CPI index level
+  cpi_growth_rate      - % CPI growth from earliest to latest month
+  cpi_volatility       - std dev of monthly CPI (price stability proxy)
+  income_mean_latest   - most recent survey mean household income
+  income_median_latest - most recent survey median household income
 """
 
 import os
@@ -11,7 +19,6 @@ import pandas as pd
 import matplotlib
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt
-import matplotlib.patches as mpatches
 import seaborn as sns
 from sklearn.preprocessing import StandardScaler
 from sklearn.cluster import KMeans, AgglomerativeClustering
@@ -25,8 +32,14 @@ MODELS_DIR = os.path.join(os.path.dirname(__file__), "..", "outputs", "models")
 os.makedirs(FIGURES_DIR, exist_ok=True)
 os.makedirs(MODELS_DIR, exist_ok=True)
 
-FEATURE_COLS = ["income_mean", "income_median", "expenditure_mean", "gini", "poverty"]
-MAX_K = 10
+FEATURE_COLS = [
+    "mean_cpi_index",
+    "cpi_growth_rate",
+    "cpi_volatility",
+    "income_mean_latest",
+    "income_median_latest",
+]
+MAX_K = 8   # 16 states → max sensible k is ~half the sample size
 
 
 def prepare_features(df: pd.DataFrame):
@@ -72,33 +85,37 @@ def fit_hierarchical(X_scaled: np.ndarray, k: int):
 
 
 def pca_transform(X_scaled: np.ndarray):
-    pca = PCA(n_components=2, random_state=42)
+    n_components = min(2, X_scaled.shape[1], X_scaled.shape[0])
+    pca = PCA(n_components=n_components, random_state=42)
     X_pca = pca.fit_transform(X_scaled)
     return pca, X_pca
 
 
-def assign_semantic_labels(df: pd.DataFrame, feature_cols=FEATURE_COLS) -> pd.DataFrame:
+def assign_semantic_labels(df: pd.DataFrame, feature_cols=None) -> tuple:
     """
-    Order clusters by mean income (ascending) and relabel semantically.
+    Order clusters by mean income (ascending) and assign readable labels.
     """
+    if feature_cols is None:
+        feature_cols = FEATURE_COLS
     cluster_means = df.groupby("cluster")[feature_cols].mean()
-    order = cluster_means["income_mean"].argsort().values
-    label_map = {}
+    order = cluster_means["income_mean_latest"].argsort().values
+    k = len(order)
     semantic = [
-        "Low Income, High Poverty",
+        "Low Income & Low CPI",
         "Mid-Low Income",
         "Mid-High Income",
-        "High Income, Low Poverty",
+        "High Income & High CPI",
     ]
+    label_map = {}
     for rank, orig_label in enumerate(order):
-        label_map[orig_label] = semantic[rank] if rank < len(semantic) else f"Cluster {rank}"
+        label_map[orig_label] = semantic[rank] if rank < len(semantic) else f"Cluster {rank + 1}"
     df["cluster_label"] = df["cluster"].map(label_map)
     return df, label_map
 
 
 def plot_elbow_silhouette(metrics: dict, save_path: str = None):
     fig, axes = plt.subplots(1, 3, figsize=(15, 4))
-    fig.suptitle("Optimal K Selection for K-Means Clustering", fontsize=13, fontweight="bold")
+    fig.suptitle("Optimal K Selection for State Clustering", fontsize=13, fontweight="bold")
 
     k_range = metrics["k_range"]
     best_k = metrics["best_k"]
@@ -122,7 +139,7 @@ def plot_elbow_silhouette(metrics: dict, save_path: str = None):
     axes[2].plot(k_range, metrics["db_scores"], "rs-")
     axes[2].axvline(x=best_k, color="red", linestyle="--", label=f"Best k={best_k}")
     axes[2].set_xlabel("Number of Clusters (k)")
-    axes[2].set_ylabel("Davies-Bouldin Score (lower=better)")
+    axes[2].set_ylabel("Davies-Bouldin (lower=better)")
     axes[2].set_title("Davies-Bouldin Index")
     axes[2].legend()
     axes[2].grid(True, alpha=0.3)
@@ -135,22 +152,30 @@ def plot_elbow_silhouette(metrics: dict, save_path: str = None):
 
 
 def plot_clusters_pca(df_clustered: pd.DataFrame, X_pca: np.ndarray, pca: PCA,
-                      title: str = "District Clusters (PCA)", save_path: str = None):
+                      title: str = "State Clusters (PCA)", save_path: str = None):
     fig, ax = plt.subplots(figsize=(10, 7))
-    labels = df_clustered["cluster_label"].unique()
+    labels = sorted(df_clustered["cluster_label"].unique())
     palette = sns.color_palette("tab10", len(labels))
-    color_map = dict(zip(sorted(labels), palette))
+    color_map = dict(zip(labels, palette))
 
-    for label in sorted(labels):
+    for label in labels:
         mask = df_clustered["cluster_label"] == label
         ax.scatter(
             X_pca[mask, 0], X_pca[mask, 1],
-            c=[color_map[label]], label=label,
-            s=60, alpha=0.75, edgecolors="white", linewidths=0.4,
+            c=[color_map[label]], label=label, s=120,
+            alpha=0.85, edgecolors="white", linewidths=0.6,
         )
+        # Annotate each point with state name
+        for idx in df_clustered[mask].index:
+            pos = df_clustered.index.get_loc(idx)
+            state = df_clustered.loc[idx, "state"]
+            ax.annotate(state, (X_pca[pos, 0], X_pca[pos, 1]),
+                        fontsize=7, ha="center", va="bottom",
+                        xytext=(0, 6), textcoords="offset points")
 
-    ax.set_xlabel(f"PC1 ({pca.explained_variance_ratio_[0]*100:.1f}% variance)", fontsize=11)
-    ax.set_ylabel(f"PC2 ({pca.explained_variance_ratio_[1]*100:.1f}% variance)", fontsize=11)
+    var = pca.explained_variance_ratio_
+    ax.set_xlabel(f"PC1 ({var[0]*100:.1f}% variance)", fontsize=11)
+    ax.set_ylabel(f"PC2 ({var[1]*100:.1f}% variance)" if len(var) > 1 else "PC2", fontsize=11)
     ax.set_title(title, fontsize=13, fontweight="bold")
     ax.legend(loc="upper right", fontsize=9)
     ax.grid(True, alpha=0.25)
@@ -162,36 +187,34 @@ def plot_clusters_pca(df_clustered: pd.DataFrame, X_pca: np.ndarray, pca: PCA,
 
 
 def plot_cluster_profiles(df_clustered: pd.DataFrame, save_path: str = None):
-    """Radar/heatmap of mean feature values per cluster."""
+    """Heatmap of normalised feature means per cluster + state count bar chart."""
     profile = df_clustered.groupby("cluster_label")[FEATURE_COLS].mean().reset_index()
 
-    # Normalise for heatmap readability
     norm_profile = profile.copy()
     for col in FEATURE_COLS:
-        col_min, col_max = norm_profile[col].min(), norm_profile[col].max()
+        col_min = norm_profile[col].min()
+        col_max = norm_profile[col].max()
         norm_profile[col] = (norm_profile[col] - col_min) / (col_max - col_min + 1e-9)
 
     fig, axes = plt.subplots(1, 2, figsize=(14, 5))
-    fig.suptitle("District Cluster Socioeconomic Profiles", fontsize=13, fontweight="bold")
+    fig.suptitle("State Cluster Socioeconomic Profiles", fontsize=13, fontweight="bold")
 
-    # Heatmap
     heat_data = norm_profile.set_index("cluster_label")[FEATURE_COLS]
+    annot_data = profile.set_index("cluster_label")[FEATURE_COLS].round(2)
     sns.heatmap(
-        heat_data, annot=profile.set_index("cluster_label")[FEATURE_COLS].round(1),
-        fmt=".1f", cmap="RdYlGn_r", ax=axes[0], linewidths=0.5,
-        cbar_kws={"label": "Normalised value"},
+        heat_data, annot=annot_data, fmt=".2f", cmap="RdYlGn", ax=axes[0],
+        linewidths=0.5, cbar_kws={"label": "Normalised value"},
     )
     axes[0].set_title("Feature Means per Cluster (normalised colour)")
     axes[0].set_xlabel("")
 
-    # Count per cluster
     counts = df_clustered["cluster_label"].value_counts().reset_index()
     counts.columns = ["cluster_label", "count"]
     axes[1].bar(counts["cluster_label"], counts["count"],
                 color=sns.color_palette("tab10", len(counts)))
     axes[1].set_xlabel("Cluster")
-    axes[1].set_ylabel("Number of Districts")
-    axes[1].set_title("District Count per Cluster")
+    axes[1].set_ylabel("Number of States")
+    axes[1].set_title("State Count per Cluster")
     axes[1].tick_params(axis="x", rotation=20)
     axes[1].grid(True, alpha=0.3, axis="y")
 
@@ -204,11 +227,12 @@ def plot_cluster_profiles(df_clustered: pd.DataFrame, save_path: str = None):
 
 def plot_dendrogram(X_scaled: np.ndarray, labels: list = None, save_path: str = None):
     Z = linkage(X_scaled, method="ward")
-    fig, ax = plt.subplots(figsize=(14, 5))
-    dendrogram(Z, labels=labels, ax=ax, leaf_rotation=90, leaf_font_size=6,
+    fig, ax = plt.subplots(figsize=(12, 5))
+    dendrogram(Z, labels=labels, ax=ax, leaf_rotation=45, leaf_font_size=9,
                color_threshold=0.7 * max(Z[:, 2]))
-    ax.set_title("Hierarchical Clustering Dendrogram (Ward Linkage)", fontsize=13, fontweight="bold")
-    ax.set_xlabel("District")
+    ax.set_title("Hierarchical Clustering Dendrogram — Malaysian States (Ward Linkage)",
+                 fontsize=13, fontweight="bold")
+    ax.set_xlabel("State")
     ax.set_ylabel("Distance")
     plt.tight_layout()
     if save_path:
@@ -217,15 +241,13 @@ def plot_dendrogram(X_scaled: np.ndarray, labels: list = None, save_path: str = 
     return fig
 
 
-def run_all(hies_district_df: pd.DataFrame = None) -> dict:
-    if hies_district_df is None:
-        hies_district_df = pd.read_csv(os.path.join(PROCESSED_DIR, "hies_district_clean.csv"))
+def run_all(state_features_df: pd.DataFrame = None) -> dict:
+    if state_features_df is None:
+        state_features_df = pd.read_csv(os.path.join(PROCESSED_DIR, "state_features.csv"))
 
-    print("Running clustering analysis...")
+    print("Running clustering analysis on Malaysian states...")
+    X_scaled, scaler = prepare_features(state_features_df)
 
-    X_scaled, scaler = prepare_features(hies_district_df)
-
-    # Determine best k
     metrics = elbow_and_silhouette(X_scaled)
     best_k = metrics["best_k"]
     print(f"  Elbow/Silhouette -> best k = {best_k}")
@@ -233,10 +255,10 @@ def run_all(hies_district_df: pd.DataFrame = None) -> dict:
     plot_elbow_silhouette(metrics, save_path=os.path.join(FIGURES_DIR, "cluster_elbow_silhouette.png"))
 
     # K-Means
-    km_model, km_labels = fit_kmeans(X_scaled, best_k)
+    _, km_labels = fit_kmeans(X_scaled, best_k)
     pca, X_pca = pca_transform(X_scaled)
 
-    df_km = hies_district_df[["state", "district"] + FEATURE_COLS].copy()
+    df_km = state_features_df[["state"] + FEATURE_COLS].copy()
     df_km["cluster"] = km_labels
     df_km, label_map_km = assign_semantic_labels(df_km)
 
@@ -248,13 +270,13 @@ def run_all(hies_district_df: pd.DataFrame = None) -> dict:
     }
     print(f"  K-Means scores: {km_scores}")
 
-    plot_clusters_pca(df_km, X_pca, pca, title="K-Means District Clusters (PCA)",
+    plot_clusters_pca(df_km, X_pca, pca, title="K-Means State Clusters (PCA)",
                       save_path=os.path.join(FIGURES_DIR, "cluster_pca_kmeans.png"))
     plot_cluster_profiles(df_km, save_path=os.path.join(FIGURES_DIR, "cluster_profiles.png"))
 
     # Hierarchical
     _, hc_labels = fit_hierarchical(X_scaled, best_k)
-    df_hc = hies_district_df[["state", "district"] + FEATURE_COLS].copy()
+    df_hc = state_features_df[["state"] + FEATURE_COLS].copy()
     df_hc["cluster"] = hc_labels
     df_hc, label_map_hc = assign_semantic_labels(df_hc)
 
@@ -266,23 +288,29 @@ def run_all(hies_district_df: pd.DataFrame = None) -> dict:
     }
     print(f"  Hierarchical scores: {hc_scores}")
 
-    plot_clusters_pca(df_hc, X_pca, pca, title="Hierarchical Clustering (PCA)",
+    plot_clusters_pca(df_hc, X_pca, pca, title="Hierarchical Clustering — States (PCA)",
                       save_path=os.path.join(FIGURES_DIR, "cluster_pca_hierarchical.png"))
-    plot_dendrogram(X_scaled, labels=hies_district_df["district"].tolist(),
+    plot_dendrogram(X_scaled, labels=state_features_df["state"].tolist(),
                     save_path=os.path.join(FIGURES_DIR, "cluster_dendrogram.png"))
 
-    # Save clustered data
-    df_km.to_csv(os.path.join(PROCESSED_DIR, "districts_kmeans_clustered.csv"), index=False)
-    df_hc.to_csv(os.path.join(PROCESSED_DIR, "districts_hierarchical_clustered.csv"), index=False)
+    df_km.to_csv(os.path.join(PROCESSED_DIR, "states_kmeans_clustered.csv"), index=False)
+    df_hc.to_csv(os.path.join(PROCESSED_DIR, "states_hierarchical_clustered.csv"), index=False)
 
     result = {
         "best_k": best_k,
         "elbow_metrics": metrics,
-        "kmeans": {"scores": km_scores, "label_map": {int(k): v for k, v in label_map_km.items()}},
-        "hierarchical": {"scores": hc_scores, "label_map": {int(k): v for k, v in label_map_hc.items()}},
+        "kmeans": {
+            "scores": km_scores,
+            "label_map": {int(k): v for k, v in label_map_km.items()},
+        },
+        "hierarchical": {
+            "scores": hc_scores,
+            "label_map": {int(k): v for k, v in label_map_hc.items()},
+        },
         "df_kmeans": df_km,
         "df_hierarchical": df_hc,
     }
+
     with open(os.path.join(MODELS_DIR, "clustering_results.json"), "w") as f:
         json.dump(
             {k: v for k, v in result.items() if k not in ("df_kmeans", "df_hierarchical")},

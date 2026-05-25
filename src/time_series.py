@@ -1,10 +1,12 @@
 """
 Time Series Forecasting module.
-Uses ARIMA with per-state BIC-based order selection to model and forecast
-Gini coefficient trends per Malaysian state.
-Train/test split: last 5 years as test.
-Metrics evaluated on real survey years only (not interpolated fill-ins).
-Forecast horizon: 2023-2030.
+
+Uses ARIMA with BIC-based order selection to forecast Malaysia's national
+overall CPI inflation (year-on-year, monthly).
+
+Data source : data/processed/overall_inflation.csv
+Test set    : last 24 months
+Forecast    : 24 months beyond the latest observation
 """
 
 import os
@@ -15,6 +17,7 @@ import pandas as pd
 import matplotlib
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt
+import matplotlib.dates as mdates
 from statsmodels.tsa.arima.model import ARIMA
 from statsmodels.tsa.stattools import adfuller
 from sklearn.metrics import mean_absolute_error, mean_squared_error
@@ -27,10 +30,8 @@ MODELS_DIR = os.path.join(os.path.dirname(__file__), "..", "outputs", "models")
 os.makedirs(FIGURES_DIR, exist_ok=True)
 os.makedirs(MODELS_DIR, exist_ok=True)
 
-FORECAST_HORIZON = 8  # years beyond 2022
-TEST_YEARS = 5
-# Short-series states get a restricted search space to avoid overfitting sparse data
-SHORT_SERIES_THRESHOLD = 12   # real survey observations
+TEST_MONTHS = 24
+FORECAST_HORIZON = 24
 
 
 def check_stationarity(series: pd.Series) -> dict:
@@ -42,11 +43,11 @@ def check_stationarity(series: pd.Series) -> dict:
     }
 
 
-def select_order(series: pd.Series, p_max: int = 3, q_max: int = 3) -> tuple:
+def select_order(series: pd.Series, p_max: int = 4, q_max: int = 4) -> tuple:
     """
-    Per-series BIC grid search over p in [0,p_max] and q in [0,q_max].
+    BIC grid search over p in [0, p_max] and q in [0, q_max].
     d is determined by ADF test. BIC penalises complexity more than AIC,
-    yielding simpler, more generalizable models for short interpolated series.
+    yielding more parsimonious models that generalise better.
     """
     stat = check_stationarity(series)
     d = 0 if stat["is_stationary"] else 1
@@ -70,64 +71,75 @@ def select_order(series: pd.Series, p_max: int = 3, q_max: int = 3) -> tuple:
 
 
 def fit_arima(series: pd.Series, order: tuple):
-    # Pass .values (plain ndarray) so statsmodels uses RangeIndex and get_forecast works
     return ARIMA(series.values, order=order).fit()
 
 
 def _extract_forecast(fc):
-    """Return (mean, lower_95, upper_95) as plain ndarrays from a ForecastResults object.
-    Works whether the underlying index is RangeIndex (ndarray output) or DatetimeIndex."""
     mean = np.asarray(fc.predicted_mean)
     ci = np.asarray(fc.conf_int(alpha=0.05))
     return mean, ci[:, 0], ci[:, 1]
 
 
-def train_test_split_ts(series: pd.Series, test_n=TEST_YEARS):
+def train_test_split_ts(series: pd.Series, test_n: int = TEST_MONTHS):
     return series.iloc[:-test_n], series.iloc[-test_n:]
 
 
 def evaluate_forecast(actual: pd.Series, predicted: np.ndarray) -> dict:
     mae = mean_absolute_error(actual, predicted)
     rmse = np.sqrt(mean_squared_error(actual, predicted))
-    mape = np.mean(np.abs((actual.values - predicted) / actual.values)) * 100
+    mape = np.mean(np.abs((actual.values - predicted) / (np.abs(actual.values) + 1e-8))) * 100
     return {"MAE": round(mae, 4), "RMSE": round(rmse, 4), "MAPE": round(mape, 2)}
 
 
-def evaluate_on_survey_years(
-    test_series: pd.Series, test_pred: np.ndarray, survey_years: set
-) -> dict:
+def compute_fuel_correlation(inflation_df: pd.DataFrame, fuelprice_df: pd.DataFrame) -> dict:
     """
-    Evaluate only on years that come from real DOSM surveys, not linear fill-ins.
-    Falls back to full test set when no real years fall in the test window.
+    Merge monthly CPI inflation with monthly fuel prices and compute
+    Pearson correlations for each fuel type. Also includes lag-1 correlation
+    to check if fuel prices lead inflation by one month.
     """
-    real_mask = test_series.index.isin(survey_years)
-    if real_mask.sum() >= 2:
-        return evaluate_forecast(test_series[real_mask], test_pred[real_mask])
-    return evaluate_forecast(test_series, test_pred)
+    merged = pd.merge(
+        inflation_df[["date", "inflation_yoy"]],
+        fuelprice_df[["date", "ron95", "ron97", "diesel", "avg_fuel"]],
+        on="date",
+        how="inner",
+    ).dropna()
+
+    corr = {}
+    for col in ["ron95", "ron97", "diesel", "avg_fuel"]:
+        r = merged["inflation_yoy"].corr(merged[col])
+        r_lag1 = merged["inflation_yoy"].iloc[1:].corr(merged[col].iloc[:-1])
+        corr[col] = {"contemporaneous": round(r, 4), "lag1": round(r_lag1, 4)}
+
+    return {
+        "correlations": corr,
+        "n_overlap_months": len(merged),
+        "overlap_start": str(merged["date"].min().date()),
+        "overlap_end": str(merged["date"].max().date()),
+        "merged_data": merged.to_dict(orient="records"),
+    }
 
 
-def run_live(state: str, gini_annual_df: pd.DataFrame,
-             horizon: int = FORECAST_HORIZON, order: tuple = None):
+def run_live(inflation_df: pd.DataFrame, horizon: int = FORECAST_HORIZON, order: tuple = None):
     """
-    Generator for SSE streaming. Yields progress and result dicts for one state.
-    Each dict has a "type" key: "progress" | "result" | "error".
+    Generator for SSE streaming. Yields progress and result dicts.
+    Each dict has a 'type' key: 'progress' | 'result' | 'error'.
     """
-    grp = gini_annual_df[gini_annual_df["state"] == state].set_index("year")["gini"].sort_index()
+    series = inflation_df.set_index("date")["inflation_yoy"].sort_index()
 
-    if len(grp) < 10:
-        yield {"type": "error", "message": f"Not enough data for {state} (need ≥10 observations)"}
+    if len(series) < 30:
+        yield {"type": "error", "message": "Not enough data (need ≥30 months)"}
         return
 
+    train, test = train_test_split_ts(series)
+
     yield {"type": "progress", "step": "Running ADF stationarity test…", "pct": 10}
-    train, test = train_test_split_ts(grp)
     stat = check_stationarity(train)
     stat_label = "stationary" if stat["is_stationary"] else "non-stationary"
     yield {"type": "progress", "step": f"ADF p={stat['p_value']} ({stat_label})", "pct": 22}
 
     if order is None:
         yield {"type": "progress", "step": "Selecting best ARIMA order via BIC grid search…", "pct": 38}
-        p_max = 1 if len(grp) < SHORT_SERIES_THRESHOLD else 3
-        order = select_order(train, p_max=p_max, q_max=p_max)
+        order = select_order(train)
 
     yield {"type": "progress", "step": f"Fitting ARIMA{order} on training data…", "pct": 54}
     try:
@@ -136,37 +148,38 @@ def run_live(state: str, gini_annual_df: pd.DataFrame,
         yield {"type": "error", "message": f"ARIMA fit failed: {exc}"}
         return
 
-    yield {"type": "progress", "step": "Evaluating on held-out test years…", "pct": 68}
+    yield {"type": "progress", "step": "Evaluating on held-out 24-month test period…", "pct": 68}
     test_pred, _, _ = _extract_forecast(fitted.get_forecast(steps=len(test)))
     metrics = evaluate_forecast(test, test_pred)
     yield {"type": "progress",
            "step": f"RMSE={metrics['RMSE']}  MAPE={metrics['MAPE']}%", "pct": 82}
 
-    end_year = int(grp.index.max()) + horizon
-    yield {"type": "progress",
-           "step": f"Refitting on full series → forecasting to {end_year}…", "pct": 93}
-    final_model = fit_arima(grp, order)
-    future_pred, future_lower, future_upper = _extract_forecast(final_model.get_forecast(steps=horizon))
-    future_years = list(range(int(grp.index.max()) + 1, int(grp.index.max()) + horizon + 1))
+    yield {"type": "progress", "step": f"Refitting on full series → forecasting {horizon} months…", "pct": 93}
+    final_model = fit_arima(series, order)
+    future_pred, future_lower, future_upper = _extract_forecast(
+        final_model.get_forecast(steps=horizon)
+    )
+    last_date = series.index.max()
+    future_dates = pd.date_range(last_date, periods=horizon + 1, freq="MS")[1:]
 
     yield {
         "type": "result",
         "pct": 100,
         "data": {
             "train": {
-                "years": list(map(int, train.index)),
-                "gini":  [float(v) for v in train.values],
+                "dates": [str(d.date()) for d in train.index],
+                "values": [float(v) for v in train.values],
             },
             "test": {
-                "years":     list(map(int, test.index)),
+                "dates":     [str(d.date()) for d in test.index],
                 "actual":    [float(v) for v in test.values],
                 "predicted": [float(v) for v in test_pred],
             },
             "forecast": {
-                "years": future_years,
-                "gini":  [float(v) for v in future_pred],
-                "lower": [float(v) for v in future_lower],
-                "upper": [float(v) for v in future_upper],
+                "dates":  [str(d.date()) for d in future_dates],
+                "values": [float(v) for v in future_pred],
+                "lower":  [float(v) for v in future_lower],
+                "upper":  [float(v) for v in future_upper],
             },
             "metrics": {k: float(v) for k, v in metrics.items()},
             "stationarity": {
@@ -182,131 +195,62 @@ def run_live(state: str, gini_annual_df: pd.DataFrame,
     }
 
 
-def run_forecast_all_states(
-    gini_annual_df: pd.DataFrame,
-    gini_raw_df: pd.DataFrame = None,
-) -> dict:
-    """
-    Fit ARIMA per state with BIC-based order selection.
-    When gini_raw_df is provided, metrics are evaluated only on real survey years.
-    """
-    results = {}
-    states = gini_annual_df["state"].unique()
-
-    # Build per-state set of real survey years for honest evaluation
-    survey_years_by_state = {}
-    if gini_raw_df is not None:
-        for state, grp in gini_raw_df.groupby("state"):
-            survey_years_by_state[state] = set(grp["year"].tolist())
-
-    for state in states:
-        grp = gini_annual_df[gini_annual_df["state"] == state].set_index("year")["gini"]
-        grp = grp.sort_index()
-
-        if len(grp) < 10:
-            continue
-
-        n_real = len(survey_years_by_state.get(state, set()))
-        p_max = 1 if n_real < SHORT_SERIES_THRESHOLD else 3
-
-        train, test = train_test_split_ts(grp)
-        stationarity = check_stationarity(train)
-        order = select_order(train, p_max=p_max, q_max=p_max)
-        print(f"    {state} (real obs={n_real}): selected ARIMA{order}")
-
-        try:
-            fitted = fit_arima(train, order)
-            test_pred, _, _ = _extract_forecast(fitted.get_forecast(steps=len(test)))
-
-            survey_yrs = survey_years_by_state.get(state, set())
-            if survey_yrs:
-                metrics = evaluate_on_survey_years(test, test_pred, survey_yrs)
-                eval_mode = "survey_years_only"
-            else:
-                metrics = evaluate_forecast(test, test_pred)
-                eval_mode = "all_test_years"
-
-            final_model = fit_arima(grp, order)
-            future_pred, future_lower, future_upper = _extract_forecast(
-                final_model.get_forecast(steps=FORECAST_HORIZON)
-            )
-            future_years = list(range(grp.index.max() + 1, grp.index.max() + FORECAST_HORIZON + 1))
-
-            results[state] = {
-                "train_years":    list(map(int, train.index)),
-                "train_gini":     [float(v) for v in train.values],
-                "test_years":     list(map(int, test.index)),
-                "test_gini":      [float(v) for v in test.values],
-                "test_pred":      [float(v) for v in test_pred],
-                "forecast_years": future_years,
-                "forecast_gini":  [float(v) for v in future_pred],
-                "forecast_lower": [float(v) for v in future_lower],
-                "forecast_upper": [float(v) for v in future_upper],
-                "metrics": {k: float(v) for k, v in metrics.items()},
-                "eval_mode": eval_mode,
-                "stationarity": {
-                    "adf_stat":      float(stationarity["adf_stat"]),
-                    "p_value":       float(stationarity["p_value"]),
-                    "is_stationary": bool(stationarity["is_stationary"]),
-                },
-                "arima_order": list(order),
-                "aic": round(float(final_model.aic), 2),
-                "bic": round(float(final_model.bic), 2),
-                "n_real_obs": n_real,
-            }
-        except Exception as e:
-            results[state] = {"error": str(e)}
-
-    with open(os.path.join(MODELS_DIR, "arima_results.json"), "w") as f:
-        json.dump(results, f, indent=2)
-
-    return results
-
-
-def plot_forecast(state: str, result: dict, save_path: str = None):
-    if "error" in result:
-        return None
-
+def plot_forecast(result: dict, save_path: str = None):
     order_str = "ARIMA({},{},{})".format(*result["arima_order"])
-    aic_str = f"AIC={result.get('aic', '?')}"
-    fig, axes = plt.subplots(1, 2, figsize=(14, 5))
+    fig, axes = plt.subplots(1, 2, figsize=(16, 5))
     fig.suptitle(
-        f"Gini Coefficient Forecast — {state}  [{order_str}, {aic_str}]",
+        f"Malaysian CPI Inflation Forecast — {order_str}  "
+        f"[AIC={result.get('aic', '?')}, BIC={result.get('bic', '?')}]",
         fontsize=13, fontweight="bold",
     )
 
     ax = axes[0]
-    ax.plot(result["train_years"], result["train_gini"], "b-o", markersize=4, label="Train")
-    ax.plot(result["test_years"], result["test_gini"], "g-o", markersize=4, label="Test (actual)")
-    ax.plot(result["test_years"], result["test_pred"], "r--o", markersize=4, label="Test (predicted)")
-    ax.plot(result["forecast_years"], result["forecast_gini"], "m-^", markersize=5,
-            label="Forecast 2023–2030")
-    if "forecast_lower" in result:
-        ax.fill_between(
-            result["forecast_years"],
-            result["forecast_lower"],
-            result["forecast_upper"],
-            color="violet", alpha=0.25, label="95% CI",
-        )
-    ax.axvline(x=result["test_years"][0], color="gray", linestyle=":", alpha=0.6)
-    ax.set_xlabel("Year")
-    ax.set_ylabel("Gini Coefficient")
-    ax.set_title("Historical + Forecast")
+    # Show only last 10 years of history for readability
+    train_dates = pd.to_datetime(result["train"]["dates"])
+    train_vals = result["train"]["values"]
+    cutoff = train_dates.max() - pd.DateOffset(years=10)
+    mask = train_dates >= cutoff
+    ax.plot(train_dates[mask], np.array(train_vals)[mask], "b-", linewidth=1.2, label="Historical")
+    ax.plot(pd.to_datetime(result["test"]["dates"]), result["test"]["actual"],
+            "g-o", markersize=3, label="Actual (test)")
+    ax.plot(pd.to_datetime(result["test"]["dates"]), result["test"]["predicted"],
+            "r--o", markersize=3, label="Predicted (test)")
+    forecast_dates = pd.to_datetime(result["forecast"]["dates"])
+    ax.plot(forecast_dates, result["forecast"]["values"], "m-^", markersize=4,
+            label=f"Forecast ({len(forecast_dates)}m)")
+    ax.fill_between(
+        forecast_dates,
+        result["forecast"]["lower"],
+        result["forecast"]["upper"],
+        color="violet", alpha=0.25, label="95% CI",
+    )
+    ax.axhline(y=0, color="black", linestyle=":", linewidth=0.8, alpha=0.5)
+    ax.axvline(x=pd.to_datetime(result["test"]["dates"][0]),
+               color="gray", linestyle=":", alpha=0.5)
+    ax.set_xlabel("Date")
+    ax.set_ylabel("Inflation YoY (%)")
+    ax.set_title("Historical + 24-Month Forecast")
     ax.legend(fontsize=8)
     ax.grid(True, alpha=0.3)
+    ax.xaxis.set_major_formatter(mdates.DateFormatter("%b %Y"))
+    ax.xaxis.set_major_locator(mdates.MonthLocator(interval=12))
+    plt.setp(ax.get_xticklabels(), rotation=30, ha="right")
 
     ax2 = axes[1]
-    ax2.plot(result["test_years"], result["test_gini"], "g-o", label="Actual")
-    ax2.plot(result["test_years"], result["test_pred"], "r--o", label="Predicted")
+    ax2.plot(pd.to_datetime(result["test"]["dates"]), result["test"]["actual"],
+             "g-o", markersize=4, label="Actual")
+    ax2.plot(pd.to_datetime(result["test"]["dates"]), result["test"]["predicted"],
+             "r--o", markersize=4, label="Predicted")
     m = result["metrics"]
-    eval_note = " (survey yrs)" if result.get("eval_mode") == "survey_years_only" else ""
-    ax2.set_title(
-        f"Test Evaluation{eval_note}\nMAE={m['MAE']} | RMSE={m['RMSE']} | MAPE={m['MAPE']}%"
-    )
-    ax2.set_xlabel("Year")
-    ax2.set_ylabel("Gini Coefficient")
+    ax2.set_title(f"Test Period Evaluation (24 months)\nMAE={m['MAE']} | RMSE={m['RMSE']} | MAPE={m['MAPE']}%")
+    ax2.set_xlabel("Date")
+    ax2.set_ylabel("Inflation YoY (%)")
+    ax2.axhline(y=0, color="black", linestyle=":", linewidth=0.8, alpha=0.5)
     ax2.legend()
     ax2.grid(True, alpha=0.3)
+    ax2.xaxis.set_major_formatter(mdates.DateFormatter("%b %Y"))
+    ax2.xaxis.set_major_locator(mdates.MonthLocator(interval=3))
+    plt.setp(ax2.get_xticklabels(), rotation=30, ha="right")
 
     plt.tight_layout()
     if save_path:
@@ -315,46 +259,30 @@ def plot_forecast(state: str, result: dict, save_path: str = None):
     return fig
 
 
-def plot_all_states_summary(results: dict, save_path: str = None):
-    valid = {s: r for s, r in results.items() if "error" not in r}
-    states = list(valid.keys())
-    mape = [r["metrics"]["MAPE"] for r in valid.values()]
-    rmse = [r["metrics"]["RMSE"] for r in valid.values()]
-    forecast_2030 = [r["forecast_gini"][-1] for r in valid.values()]
-    orders = [str(tuple(r["arima_order"])) for r in valid.values()]
+def plot_division_trends(cpi_inflation_df: pd.DataFrame, save_path: str = None):
+    """Line chart of yoy inflation by division for recent 5 years."""
+    cutoff = cpi_inflation_df["date"].max() - pd.DateOffset(years=5)
+    recent = cpi_inflation_df[cpi_inflation_df["date"] >= cutoff].dropna(subset=["inflation_yoy"])
+    divisions = [d for d in recent["division"].unique() if d != "overall"]
 
-    fig, axes = plt.subplots(1, 3, figsize=(20, 6))
-    fig.suptitle("Gini Forecasting Summary — All States (Auto-ARIMA, BIC selection)",
-                 fontsize=13, fontweight="bold")
+    import seaborn as sns
+    palette = sns.color_palette("tab20", len(divisions))
+    fig, ax = plt.subplots(figsize=(14, 7))
+    for i, div in enumerate(sorted(divisions)):
+        grp = recent[recent["division"] == div].sort_values("date")
+        label = grp["division_label"].iloc[0] if "division_label" in grp.columns else div
+        ax.plot(grp["date"], grp["inflation_yoy"], linewidth=1.4,
+                label=label, color=palette[i])
 
-    colors_mape = ["#d73027" if v > 10 else "#fee090" if v > 5 else "#91cf60" for v in mape]
-    axes[0].barh(states, mape, color=colors_mape)
-    axes[0].set_xlabel("MAPE (%)")
-    axes[0].set_title("Forecast Error (MAPE) by State")
-    axes[0].axvline(x=np.mean(mape), color="red", linestyle="--",
-                    label=f"Mean={np.mean(mape):.2f}%")
-    axes[0].legend(fontsize=9)
-    axes[0].grid(True, alpha=0.3, axis="x")
-
-    axes[1].barh(states, rmse, color="steelblue")
-    axes[1].set_xlabel("RMSE")
-    axes[1].set_title("Forecast Error (RMSE) by State")
-    axes[1].axvline(x=np.mean(rmse), color="red", linestyle="--",
-                    label=f"Mean={np.mean(rmse):.4f}")
-    axes[1].legend(fontsize=9)
-    axes[1].grid(True, alpha=0.3, axis="x")
-
-    colors_f = ["#d73027" if v > 0.4 else "#fee090" if v > 0.35 else "#91cf60" for v in forecast_2030]
-    bars = axes[2].barh(states, forecast_2030, color=colors_f)
-    axes[2].axvline(x=0.4, color="red", linestyle="--", label="Inequality threshold (0.40)")
-    axes[2].set_xlabel("Gini Coefficient")
-    axes[2].set_title("Forecasted Gini by 2030")
-    for bar, order in zip(bars, orders):
-        axes[2].text(bar.get_width() + 0.001, bar.get_y() + bar.get_height() / 2,
-                     order, va="center", fontsize=7, color="gray")
-    axes[2].legend(fontsize=9)
-    axes[2].grid(True, alpha=0.3, axis="x")
-
+    overall = recent[recent["division"] == "overall"].sort_values("date")
+    ax.plot(overall["date"], overall["inflation_yoy"], "k-", linewidth=2.5,
+            label="Overall CPI", zorder=5)
+    ax.axhline(y=0, color="black", linestyle="--", linewidth=0.8, alpha=0.5)
+    ax.set_xlabel("Date", fontsize=11)
+    ax.set_ylabel("Year-on-Year Inflation (%)", fontsize=11)
+    ax.set_title("CPI Inflation by Division — Last 5 Years", fontsize=13, fontweight="bold")
+    ax.legend(fontsize=7, ncol=2, loc="upper left")
+    ax.grid(True, alpha=0.25)
     plt.tight_layout()
     if save_path:
         plt.savefig(save_path, dpi=120, bbox_inches="tight")
@@ -362,31 +290,96 @@ def plot_all_states_summary(results: dict, save_path: str = None):
     return fig
 
 
-def run_all(gini_annual_df: pd.DataFrame = None, gini_raw_df: pd.DataFrame = None) -> dict:
-    if gini_annual_df is None:
-        gini_annual_df = pd.read_csv(os.path.join(PROCESSED_DIR, "gini_state_annual.csv"))
-    if gini_raw_df is None:
-        raw_path = os.path.join(PROCESSED_DIR, "gini_state_clean.csv")
-        if os.path.exists(raw_path):
-            gini_raw_df = pd.read_csv(raw_path)
+def run_all(inflation_df: pd.DataFrame = None, fuelprice_df: pd.DataFrame = None) -> dict:
+    if inflation_df is None:
+        inflation_df = pd.read_csv(os.path.join(PROCESSED_DIR, "overall_inflation.csv"),
+                                   parse_dates=["date"])
+    if fuelprice_df is None:
+        fp_path = os.path.join(PROCESSED_DIR, "fuelprice_clean.csv")
+        if os.path.exists(fp_path):
+            fuelprice_df = pd.read_csv(fp_path, parse_dates=["date"])
 
-    print("Running auto-ARIMA forecasting per state (BIC order selection)...")
-    results = run_forecast_all_states(gini_annual_df, gini_raw_df)
+    print("Running ARIMA forecasting on national CPI inflation...")
+    series = inflation_df.set_index("date")["inflation_yoy"].sort_index()
+    train, test = train_test_split_ts(series)
 
-    success = sum(1 for r in results.values() if "error" not in r)
-    print(f"  Forecast complete: {success}/{len(results)} states successful")
+    stationarity = check_stationarity(train)
+    print(f"  ADF test: p={stationarity['p_value']} "
+          f"({'stationary' if stationarity['is_stationary'] else 'non-stationary'})")
 
-    for state, result in results.items():
-        if "error" not in result:
-            path = os.path.join(FIGURES_DIR, f"ts_{state.lower().replace(' ', '_')}.png")
-            plot_forecast(state, result, save_path=path)
+    order = select_order(train)
+    print(f"  BIC-selected order: ARIMA{order}")
 
-    plot_all_states_summary(
-        results,
-        save_path=os.path.join(FIGURES_DIR, "ts_summary_all_states.png"),
+    fitted = fit_arima(train, order)
+    test_pred, _, _ = _extract_forecast(fitted.get_forecast(steps=len(test)))
+    metrics = evaluate_forecast(test, test_pred)
+    print(f"  Test metrics: MAE={metrics['MAE']} RMSE={metrics['RMSE']} MAPE={metrics['MAPE']}%")
+
+    final_model = fit_arima(series, order)
+    future_pred, future_lower, future_upper = _extract_forecast(
+        final_model.get_forecast(steps=FORECAST_HORIZON)
     )
+    last_date = series.index.max()
+    future_dates = pd.date_range(last_date, periods=FORECAST_HORIZON + 1, freq="MS")[1:]
+
+    result = {
+        "train": {
+            "dates":  [str(d.date()) for d in train.index],
+            "values": [float(v) for v in train.values],
+        },
+        "test": {
+            "dates":     [str(d.date()) for d in test.index],
+            "actual":    [float(v) for v in test.values],
+            "predicted": [float(v) for v in test_pred],
+        },
+        "forecast": {
+            "dates":  [str(d.date()) for d in future_dates],
+            "values": [float(v) for v in future_pred],
+            "lower":  [float(v) for v in future_lower],
+            "upper":  [float(v) for v in future_upper],
+        },
+        "metrics": {k: float(v) for k, v in metrics.items()},
+        "stationarity": {
+            "adf_stat":      float(stationarity["adf_stat"]),
+            "p_value":       float(stationarity["p_value"]),
+            "is_stationary": bool(stationarity["is_stationary"]),
+        },
+        "arima_order": list(order),
+        "aic": round(float(final_model.aic), 2),
+        "bic": round(float(final_model.bic), 2),
+        "horizon": FORECAST_HORIZON,
+        "series_length": len(series),
+        "test_months": TEST_MONTHS,
+    }
+
+    # Fuel price correlation (if available)
+    if fuelprice_df is not None:
+        print("  Computing fuel price correlation...")
+        result["fuel_correlation"] = compute_fuel_correlation(inflation_df, fuelprice_df)
+
+    with open(os.path.join(MODELS_DIR, "arima_results.json"), "w") as f:
+        json.dump({k: v for k, v in result.items() if k != "fuel_correlation"
+                   or not isinstance(v.get("merged_data"), list)}, f, indent=2, default=str)
+
+    # Save full result including merged data separately
+    with open(os.path.join(MODELS_DIR, "arima_results.json"), "w") as f:
+        out = {k: v for k, v in result.items() if k != "fuel_correlation"}
+        json.dump(out, f, indent=2, default=str)
+
+    if "fuel_correlation" in result:
+        with open(os.path.join(MODELS_DIR, "fuel_correlation.json"), "w") as f:
+            json.dump(result["fuel_correlation"], f, indent=2, default=str)
+
+    plot_forecast(result, save_path=os.path.join(FIGURES_DIR, "ts_forecast.png"))
+
+    # Load full cpi_inflation for division trends plot
+    cpi_path = os.path.join(PROCESSED_DIR, "cpi_inflation_clean.csv")
+    if os.path.exists(cpi_path):
+        cpi_all = pd.read_csv(cpi_path, parse_dates=["date"])
+        plot_division_trends(cpi_all, save_path=os.path.join(FIGURES_DIR, "ts_division_trends.png"))
+
     print("  Figures saved to outputs/figures/")
-    return results
+    return result
 
 
 if __name__ == "__main__":

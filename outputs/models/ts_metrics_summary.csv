@@ -1,17 +1,2 @@
-State,MAE,RMSE,MAPE (%),Stationary (train),Forecast 2030
-Perlis,0.001,0.0014,0.3,False,0.3359
-Sabah,0.0035,0.0036,0.88,False,0.3948
-W.P. Putrajaya,0.0035,0.0036,0.96,False,0.3714
-Sarawak,0.0034,0.0043,0.9,False,0.3812
-Johor,0.0063,0.0063,1.72,False,0.3657
-Terengganu,0.0053,0.007,1.63,False,0.3241
-Pulau Pinang,0.0098,0.0099,2.69,True,0.3991
-Kelantan,0.0126,0.0133,3.3,True,0.4384
-Negeri Sembilan,0.0132,0.0134,3.5,True,0.3803
-Kedah,0.0146,0.0148,4.09,False,0.361
-W.P. Kuala Lumpur,0.015,0.015,4.13,False,0.3843
-Selangor,0.0185,0.0223,5.04,False,0.339
-Melaka,0.0182,0.0224,4.89,True,0.3938
-Perak,0.023,0.0265,6.22,True,0.4005
-Pahang,0.0374,0.039,11.87,False,0.3007
-W.P. Labuan,0.0699,0.0718,22.42,False,0.3019
+Series,ARIMA Order,AIC,BIC,MAE,RMSE,MAPE (%),Stationary (train),Forecast End (avg %)
+Overall CPI Inflation (YoY),"(4,0,4)",926.16,969.15,0.9502,1.0697,66.35,True,2.83

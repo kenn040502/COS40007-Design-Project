@@ -35,7 +35,12 @@
       "Bash(cd \"c:\\\\Users\\\\User\\\\Documents\\\\GitHub\\\\COS40007-Design-Project\" && rm -f outputs/figures/*.png outputs/models/*.json outputs/models/*.csv && echo \"Cleaned\")",
       "Bash(python src/time_series.py)",
       "Bash(python src/evaluation.py)",
-      "Bash(python src/clustering.py)"
+      "Bash(python src/clustering.py)",
+      "PowerShell(Get-ChildItem -Path \"c:\\\\Users\\\\User\\\\Documents\\\\GitHub\\\\COS40007-Design-Project\\\\outputs\" -Recurse | Where-Object { $_.PSIsContainer -eq $false } | Select-Object FullName)",
+      "WebSearch",
+      "Bash(Get-ChildItem -Path \"c:\\\\Users\\\\User\\\\Documents\\\\GitHub\\\\COS40007-Design-Project\" -Recurse -Directory)",
+      "Bash(Select-Object -ExpandProperty FullName)",
+      "Bash(python -c \"import ast, sys; ast.parse\\(open\\('app/dashboard.py'\\).read\\(\\)\\); print\\('dashboard.py OK'\\)\")"
     ],
     "additionalDirectories": [
       "C:\\Users\\User\\Documents\\GitHub\\COS40007-Design-Project\\outputs\\figures"

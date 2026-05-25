@@ -3,31 +3,33 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>Smart Government — Malaysian Socioeconomic AI Analyser</title>
+  <title>Smart Government — Malaysian CPI &amp; Cost of Living Analyser</title>
   <script src="https://cdn.plot.ly/plotly-2.27.0.min.js"></script>
   <style>
     :root {
       --primary: #1a3c6e;
-      --accent: #e8523a;
-      --bg: #f4f6fa;
-      --card: #ffffff;
-      --text: #1e2330;
-      --muted: #6b7280;
-      --border: #d1d5db;
+      --accent:  #e8523a;
+      --bg:      #f4f6fa;
+      --card:    #ffffff;
+      --text:    #1e2330;
+      --muted:   #6b7280;
+      --border:  #d1d5db;
     }
     * { box-sizing: border-box; margin: 0; padding: 0; }
     body { font-family: 'Segoe UI', system-ui, sans-serif; background: var(--bg); color: var(--text); }
 
+    /* ── Header ── */
     header {
       background: var(--primary); color: #fff; padding: 18px 32px;
-      display: flex; align-items: center; gap: 16px;
+      display: flex; align-items: center; justify-content: space-between; gap: 16px;
     }
-    header h1 { font-size: 1.35rem; font-weight: 700; }
-    header p  { font-size: 0.8rem; opacity: 0.75; }
+    header h1  { font-size: 1.3rem; font-weight: 700; }
+    header p   { font-size: 0.8rem; opacity: 0.75; margin-top: 3px; }
 
+    /* ── Nav ── */
     nav {
       background: #fff; border-bottom: 2px solid var(--border);
-      display: flex; padding: 0 24px; gap: 4px;
+      display: flex; justify-content: center; padding: 0 24px; gap: 4px;
     }
     nav button {
       padding: 14px 22px; border: none; background: transparent;
@@ -37,87 +39,109 @@
     nav button.active { color: var(--primary); border-bottom-color: var(--accent); font-weight: 600; }
     nav button:hover  { color: var(--primary); }
 
+    /* ── Layout ── */
     main { max-width: 1200px; margin: 28px auto; padding: 0 20px; }
-
     .tab-panel { display: none; }
     .tab-panel.active { display: block; }
 
+    /* ── Card ── */
     .card {
       background: var(--card); border-radius: 10px;
       box-shadow: 0 1px 6px rgba(0,0,0,0.08); padding: 24px; margin-bottom: 22px;
+      display: flex; flex-direction: column; align-items: center;
     }
-    .card h2 { font-size: 1.05rem; font-weight: 700; margin-bottom: 6px; color: var(--primary); }
-    .card p.desc { font-size: 0.83rem; color: var(--muted); margin-bottom: 16px; }
+    .card > * { width: 100%; }
+    .card h2   { font-size: 1.05rem; font-weight: 700; margin-bottom: 6px; color: var(--primary); text-align: center; }
+    .card p.desc { font-size: 0.83rem; color: var(--muted); margin-bottom: 16px; text-align: center; }
 
+    /* ── Grids ── */
     .grid-2 { display: grid; grid-template-columns: 1fr 1fr; gap: 20px; }
-    .grid-3 { display: grid; grid-template-columns: repeat(3, 1fr); gap: 14px; }
+    .grid-4 { display: grid; grid-template-columns: repeat(4, 1fr); gap: 14px; margin-top: 16px; }
 
+    /* ── Stat boxes ── */
     .stat-box {
-      background: var(--card); border-radius: 8px; padding: 16px 20px;
-      box-shadow: 0 1px 4px rgba(0,0,0,0.07);
+      background: var(--bg); border: 1px solid var(--border); border-radius: 8px; padding: 16px 20px;
     }
-    .stat-box .val { font-size: 1.7rem; font-weight: 700; color: var(--primary); }
+    .stat-box .val { font-size: 1.8rem; font-weight: 700; color: var(--primary); }
     .stat-box .lbl { font-size: 0.78rem; color: var(--muted); margin-top: 4px; }
 
-    select, input {
+    /* ── Form controls ── */
+    select {
       padding: 8px 12px; border: 1px solid var(--border); border-radius: 6px;
       font-size: 0.9rem; background: #fff; color: var(--text); margin-bottom: 14px;
     }
 
+    /* ── Tables ── */
     table { width: 100%; border-collapse: collapse; font-size: 0.85rem; }
     th { background: var(--primary); color: #fff; padding: 9px 12px; text-align: left; }
     td { padding: 8px 12px; border-bottom: 1px solid var(--border); }
     tr:nth-child(even) td { background: #f9fafb; }
 
-    .img-full { width: 100%; border-radius: 8px; }
-    .badge {
-      display: inline-block; padding: 2px 10px; border-radius: 999px;
-      font-size: 0.75rem; font-weight: 600;
-    }
-    .badge-green  { background: #d1fae5; color: #065f46; }
-    .badge-yellow { background: #fef9c3; color: #854d0e; }
-    .badge-red    { background: #fee2e2; color: #991b1b; }
+    .img-full { width: 100%; border-radius: 8px; display: block; margin: 0 auto; }
 
-    .metric-row { display: flex; gap: 14px; flex-wrap: wrap; margin-bottom: 16px; }
+    /* ── Fullscreen ── */
+    .chart-wrap { position: relative; width: 100%; }
+    .fullscreen-btn {
+      position: absolute; top: 6px; right: 6px; z-index: 10;
+      background: rgba(255,255,255,0.92); border: 1px solid var(--border);
+      border-radius: 5px; padding: 3px 9px; font-size: 0.78rem;
+      color: var(--muted); cursor: pointer; line-height: 1.6;
+      transition: background 0.15s, color 0.15s;
+    }
+    .fullscreen-btn:hover { background: var(--primary); color: #fff; border-color: var(--primary); }
+    .chart-wrap:fullscreen,
+    .chart-wrap:-webkit-full-screen {
+      background: #fff; padding: 24px;
+    }
+    .chart-wrap:fullscreen > div[id],
+    .chart-wrap:-webkit-full-screen > div[id] {
+      height: calc(100vh - 80px) !important;
+    }
+    .chart-wrap:fullscreen .img-full,
+    .chart-wrap:-webkit-full-screen .img-full {
+      max-height: calc(100vh - 80px); width: auto;
+      max-width: 100%; object-fit: contain;
+    }
+
+    /* ── Metric chips ── */
+    .metric-row { display: flex; gap: 14px; flex-wrap: wrap; margin-bottom: 16px; justify-content: center; }
     .metric-chip {
       background: var(--bg); border: 1px solid var(--border); border-radius: 6px;
       padding: 6px 14px; font-size: 0.82rem;
     }
     .metric-chip strong { color: var(--primary); }
 
-    footer {
-      text-align: center; font-size: 0.75rem; color: var(--muted);
-      padding: 24px; margin-top: 20px;
-    }
-
-    /* ── Time series live controls ── */
+    /* ── Time series controls ── */
     .ts-controls {
-      display: flex; gap: 28px; align-items: flex-end; flex-wrap: wrap; margin-bottom: 18px;
+      display: flex; gap: 24px; align-items: flex-end; flex-wrap: wrap; margin-bottom: 18px;
     }
+    .ts-ctrl-group { flex: 1; min-width: 200px; }
     .ts-ctrl-group label {
-      display: block; font-size: 0.78rem; color: var(--muted);
-      margin-bottom: 5px; font-weight: 500;
+      display: block; font-size: 0.78rem; color: var(--muted); margin-bottom: 5px; font-weight: 500;
     }
     .ts-ctrl-group input[type=range] {
-      width: 220px; accent-color: var(--primary); cursor: pointer; display: block;
+      width: 100%; accent-color: var(--primary); cursor: pointer; display: block;
     }
-    .ts-ctrl-group .range-row {
-      display: flex; align-items: center; gap: 10px;
-    }
-    .ts-ctrl-group .range-val {
-      min-width: 80px; font-size: 0.82rem; font-weight: 700; color: var(--primary);
-    }
+    .range-row { display: flex; align-items: center; gap: 10px; }
+    .range-row span { font-size: 0.73rem; color: var(--muted); white-space: nowrap; }
 
+    .run-btn-sm {
+      background: var(--primary); color: #fff; border: none; border-radius: 6px;
+      padding: 9px 18px; font-size: 0.85rem; font-weight: 600; cursor: pointer;
+      align-self: flex-end; white-space: nowrap;
+    }
+    .run-btn-sm:hover    { opacity: 0.88; }
+    .run-btn-sm:disabled { opacity: 0.5; cursor: not-allowed; }
+
+    /* ── Progress bar ── */
     #ts-progress-wrap {
       margin-bottom: 14px; overflow: hidden;
       transition: max-height 0.3s ease, opacity 0.3s ease;
       max-height: 60px; opacity: 1;
     }
     #ts-progress-wrap.hidden { max-height: 0; opacity: 0; }
-    #ts-progress-track {
-      height: 5px; background: var(--border); border-radius: 3px; overflow: hidden;
-    }
-    #ts-progress-fill {
+    #ts-progress-track { height: 5px; background: var(--border); border-radius: 3px; overflow: hidden; }
+    #ts-progress-fill  {
       height: 100%; background: var(--primary); border-radius: 3px;
       transition: width 0.35s ease; width: 0%;
     }
@@ -126,15 +150,16 @@
       white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
     }
 
-    /* ── Run pipeline modal ── */
+    /* ── Run pipeline button (header) ── */
     #run-btn {
       background: var(--accent); color: #fff; border: none; border-radius: 6px;
       padding: 9px 20px; font-size: 0.88rem; font-weight: 600; cursor: pointer;
-      margin-left: auto; transition: opacity .15s;
+      flex-shrink: 0; transition: opacity .15s;
     }
     #run-btn:disabled { opacity: 0.5; cursor: not-allowed; }
     #run-btn.ready    { background: #16a34a; }
 
+    /* ── Pipeline modal ── */
     #pipeline-modal {
       display: none; position: fixed; inset: 0;
       background: rgba(0,0,0,0.45); z-index: 100;
@@ -151,12 +176,31 @@
       font-size: 0.78rem; height: 260px; overflow-y: auto;
       border-radius: 6px; padding: 12px; white-space: pre-wrap;
     }
-    #pipeline-log .ok   { color: #4ade80; }
-    #pipeline-log .err  { color: #f87171; }
+    #pipeline-log .ok  { color: #4ade80; }
+    #pipeline-log .err { color: #f87171; }
     #pipeline-status { margin-top: 12px; font-size: 0.85rem; color: var(--muted); }
     #pipeline-close {
       margin-top: 14px; padding: 8px 18px; border: 1px solid var(--border);
       border-radius: 6px; background: #fff; cursor: pointer; font-size: 0.85rem;
+    }
+
+    /* ── Not-ready banner ── */
+    #not-ready-banner {
+      background: #fef3c7; border: 1px solid #f59e0b;
+      border-radius: 8px; padding: 14px 20px; margin-bottom: 20px;
+      font-size: 0.88rem; color: #92400e; display: none;
+    }
+
+    footer {
+      text-align: center; font-size: 0.75rem; color: var(--muted);
+      padding: 24px; margin-top: 20px;
+    }
+
+    @media (max-width: 700px) {
+      .grid-2 { grid-template-columns: 1fr; }
+      .grid-4 { grid-template-columns: 1fr 1fr; }
+      header h1 { font-size: 1rem; }
+      .ts-controls { flex-direction: column; }
     }
   </style>
 </head>
@@ -164,13 +208,13 @@
 
 <header>
   <div>
-    <h1>🇲🇾 Smart Government — Malaysian Socioeconomic AI Analyser</h1>
+    <h1>🇲🇾 Smart Government — Malaysian CPI &amp; Cost of Living Analyser</h1>
     <p>COS40007 Design Project 2026 · Theme 3 · DOSM Open Data</p>
   </div>
   <button id="run-btn" onclick="openRunModal()">▶ Run Analysis</button>
 </header>
 
-<!-- Pipeline progress modal -->
+<!-- ── Pipeline modal ───────────────────────────────────────────────── -->
 <div id="pipeline-modal">
   <div id="pipeline-box">
     <h3>Running Analysis Pipeline</h3>
@@ -183,87 +227,100 @@
 <nav>
   <button class="active" onclick="showTab('overview',this)">Overview</button>
   <button onclick="showTab('timeseries',this)">Time Series Forecast</button>
-  <button onclick="showTab('clustering',this)">District Clustering</button>
-  <button onclick="showTab('poverty',this)">Poverty Analysis</button>
+  <button onclick="showTab('clustering',this)">State Clustering</button>
+  <button onclick="showTab('fuel',this)">Fuel Analysis</button>
 </nav>
 
 <main>
 
-<div id="not-ready-banner" style="display:none; background:#fef3c7; border:1px solid #f59e0b;
-     border-radius:8px; padding:14px 20px; margin-bottom:20px; font-size:0.88rem; color:#92400e;">
+<div id="not-ready-banner">
   ⚠ Pipeline outputs not found. Click <strong>▶ Run Analysis</strong> in the header to generate results.
 </div>
 
-<!-- ══════════════════ OVERVIEW ══════════════════ -->
+<!-- ══════════════════════ OVERVIEW ══════════════════════ -->
 <div id="tab-overview" class="tab-panel active">
+
   <div class="card">
     <h2>Project Summary</h2>
     <p class="desc">
-      This system analyses Malaysian household income, expenditure, poverty, and inequality data
-      from the Department of Statistics Malaysia (DOSM). Two AI/ML techniques are applied:
-      <strong>ARIMA time series forecasting</strong> on the Gini coefficient (1974–2030) and
-      <strong>K-Means clustering</strong> to group the 160 administrative districts by socioeconomic profile.
+      This system analyses Malaysia's Consumer Price Index (CPI) inflation across 13 divisions
+      and 16 states, applying <strong>ARIMA time series forecasting</strong> on the national
+      inflation trend and <strong>K-Means clustering</strong> to group states by their CPI and
+      income profile. Fuel price dynamics and their correlation with inflation are also examined.
+      Data sourced from the Department of Statistics Malaysia (DOSM) open data portal.
     </p>
-    <div class="grid-3" id="stat-boxes">
-      <div class="stat-box"><div class="val">160</div><div class="lbl">Districts analysed</div></div>
+    <div class="grid-4">
       <div class="stat-box"><div class="val">16</div><div class="lbl">States covered</div></div>
-      <div class="stat-box"><div class="val">1974–2022</div><div class="lbl">Gini historical range</div></div>
+      <div class="stat-box"><div class="val">13</div><div class="lbl">CPI divisions tracked</div></div>
+      <div class="stat-box"><div class="val">2010–</div><div class="lbl">State CPI data from</div></div>
+      <div class="stat-box"><div class="val">2017–</div><div class="lbl">Fuel price data from</div></div>
     </div>
   </div>
 
   <div class="card">
-    <h2>State-Level Snapshot (2022)</h2>
-    <p class="desc">Mean income, Gini coefficient, and poverty rate across all 16 Malaysian states.</p>
-    <div id="chart-state-income" style="height:380px;"></div>
-  </div>
-
-  <div class="grid-2">
-    <div class="card">
-      <h2>Mean Income vs Poverty Rate</h2>
-      <img class="img-full" src="/figure/eval_income_gini_scatter.png" alt="Income vs Gini scatter" />
-    </div>
-    <div class="card">
-      <h2>Gini Trends (1974–2022)</h2>
-      <img class="img-full" src="/figure/eval_gini_trends.png" alt="Gini trends" />
-    </div>
-  </div>
-</div>
-
-<!-- ══════════════════ TIME SERIES ══════════════════ -->
-<div id="tab-timeseries" class="tab-panel">
-  <div class="card">
-    <h2>ARIMA Live Gini Coefficient Forecast</h2>
+    <h2>National CPI Inflation — Last 5 Years</h2>
     <p class="desc">
-      ARIMA(2,1,2) computed on-demand per state. Adjust the state, forecast horizon, or
-      history window — results stream in real time.
+      Year-on-year (YoY) national CPI inflation shown as a line; month-on-month (MoM)
+      changes as bars. Green bars indicate deflation months.
+    </p>
+    <div class="chart-wrap">
+      <button class="fullscreen-btn" onclick="toggleFullscreen(this)">⛶</button>
+      <div id="chart-national-inflation" style="height:380px;"></div>
+    </div>
+  </div>
+
+  <div class="card">
+    <h2>CPI Inflation by Division — Last 3 Years</h2>
+    <p class="desc">
+      Year-on-year inflation trends broken down by all 13 DOSM CPI divisions.
+      Divisions cover food, housing, transport, health, education, and more.
+    </p>
+    <div class="chart-wrap">
+      <button class="fullscreen-btn" onclick="toggleFullscreen(this)">⛶</button>
+      <div id="chart-division-trends" style="height:460px;"></div>
+    </div>
+  </div>
+
+  <div class="card">
+    <h2>State CPI Index Explorer</h2>
+    <p class="desc">
+      Monthly overall CPI index for a selected state (2010–present). Base year: 2010&nbsp;=&nbsp;100.
+      A rising index indicates cumulative price growth.
+    </p>
+    <label style="font-size:0.85rem; font-weight:500;">
+      State &nbsp;
+      <select id="state-cpi-select" onchange="loadStateCPI()"></select>
+    </label>
+    <div class="chart-wrap">
+      <button class="fullscreen-btn" onclick="toggleFullscreen(this)">⛶</button>
+      <div id="chart-state-cpi" style="height:340px; margin-top:4px;"></div>
+    </div>
+  </div>
+
+</div><!-- /tab-overview -->
+
+<!-- ══════════════════════ TIME SERIES ══════════════════════ -->
+<div id="tab-timeseries" class="tab-panel">
+
+  <div class="card">
+    <h2>ARIMA National Inflation Forecast</h2>
+    <p class="desc">
+      ARIMA fitted on monthly national CPI year-on-year inflation (overall division, 1981–present).
+      Order selected via BIC grid search; stationarity verified with the Augmented Dickey-Fuller test.
+      The model is evaluated on a held-out 24-month test window before forecasting.
     </p>
 
     <div class="ts-controls">
       <div class="ts-ctrl-group">
-        <label>State</label>
-        <select id="ts-state-select" onchange="loadForecastLive()"></select>
-      </div>
-
-      <div class="ts-ctrl-group">
-        <label>Forecast horizon — <span id="ts-horizon-val">8 years</span></label>
+        <label>Forecast horizon — <span id="ts-horizon-val">24 months</span></label>
         <div class="range-row">
-          <span style="font-size:0.75rem;color:var(--muted)">1y</span>
-          <input type="range" id="ts-horizon-slider" min="1" max="20" value="8"
-                 oninput="document.getElementById('ts-horizon-val').textContent=this.value+' years'"
-                 onchange="loadForecastLive()" />
-          <span style="font-size:0.75rem;color:var(--muted)">20y</span>
+          <span>1 m</span>
+          <input type="range" id="ts-horizon-slider" min="1" max="48" value="24"
+                 oninput="document.getElementById('ts-horizon-val').textContent=this.value+' months'" />
+          <span>48 m</span>
         </div>
       </div>
-
-      <div class="ts-ctrl-group">
-        <label>History window</label>
-        <select id="ts-history-range" onchange="rerenderForecastChart()">
-          <option value="all">All years (1974–)</option>
-          <option value="30">Last 30 years</option>
-          <option value="20">Last 20 years</option>
-          <option value="10">Last 10 years</option>
-        </select>
-      </div>
+      <button class="run-btn-sm" id="ts-run-btn" onclick="loadForecastLive()">↺ Run Forecast</button>
     </div>
 
     <div id="ts-progress-wrap" class="hidden">
@@ -272,105 +329,139 @@
     </div>
 
     <div id="ts-metrics" class="metric-row"></div>
-    <div id="chart-ts-forecast" style="height:440px;"></div>
-  </div>
-
-  <div class="card">
-    <h2>Evaluation Summary — All States</h2>
-    <p class="desc">RMSE, MAE, MAPE per state and forecasted Gini by 2030.</p>
-    <img class="img-full" src="/figure/eval_ts_metrics.png" alt="TS metrics comparison" />
-    <div style="margin-top:20px;overflow-x:auto;">
-      <table id="ts-metrics-table">
-        <thead><tr><th>State</th><th>MAE</th><th>RMSE</th><th>MAPE (%)</th><th>Forecast 2030</th></tr></thead>
-        <tbody></tbody>
-      </table>
-    </div>
-  </div>
-  <div class="card">
-    <h2>All States Forecast Summary</h2>
-    <img class="img-full" src="/figure/ts_summary_all_states.png" alt="All states forecast summary" />
-  </div>
-</div>
-
-<!-- ══════════════════ CLUSTERING ══════════════════ -->
-<div id="tab-clustering" class="tab-panel">
-  <div class="card">
-    <h2>K-Means District Clustering</h2>
-    <p class="desc">
-      160 districts clustered by: mean income, median income, mean expenditure, Gini coefficient, poverty rate.
-      Optimal k selected via Elbow + Silhouette methods. PCA used for 2-D visualisation.
-    </p>
-    <div class="grid-2">
-      <div>
-        <img class="img-full" src="/figure/cluster_elbow_silhouette.png" alt="Elbow + Silhouette" />
-      </div>
-      <div>
-        <img class="img-full" src="/figure/cluster_pca_kmeans.png" alt="K-Means PCA" />
-      </div>
+    <div class="chart-wrap">
+      <button class="fullscreen-btn" onclick="toggleFullscreen(this)">⛶</button>
+      <div id="chart-ts-forecast" style="height:480px;"></div>
     </div>
   </div>
 
   <div class="card">
-    <h2>Cluster Socioeconomic Profiles</h2>
-    <img class="img-full" src="/figure/cluster_profiles.png" alt="Cluster profiles" />
-  </div>
-
-  <div class="card">
-    <h2>Poverty & Income by Cluster</h2>
-    <img class="img-full" src="/figure/eval_poverty_cluster.png" alt="Poverty cluster boxplot" />
-  </div>
-
-  <div class="card">
-    <h2>Hierarchical Clustering — Dendrogram</h2>
-    <img class="img-full" src="/figure/cluster_dendrogram.png" alt="Dendrogram" />
-  </div>
-
-  <div class="card">
-    <h2>Clustering Evaluation Metrics</h2>
-    <p class="desc">Silhouette, Davies-Bouldin, and Calinski-Harabasz scores comparing K-Means vs Hierarchical.</p>
+    <h2>Evaluation Metrics</h2>
+    <p class="desc">ARIMA performance on the held-out 24-month test set.</p>
     <div style="overflow-x:auto;">
-      <table id="cluster-metrics-table">
-        <thead><tr><th>Method</th><th>K</th><th>Silhouette ↑</th><th>Davies-Bouldin ↓</th><th>Calinski-Harabasz ↑</th></tr></thead>
-        <tbody></tbody>
-      </table>
-    </div>
-    <div style="margin-top:20px;">
-      <div id="chart-cluster-district" style="height:420px;"></div>
-    </div>
-  </div>
-</div>
-
-<!-- ══════════════════ POVERTY ══════════════════ -->
-<div id="tab-poverty" class="tab-panel">
-  <div class="card">
-    <h2>Poverty Change by State (2019 → 2022)</h2>
-    <p class="desc">Average absolute poverty rate change per state. Red = increased poverty.</p>
-    <img class="img-full" src="/figure/eval_poverty_change.png" alt="Poverty change by state" />
-  </div>
-
-  <div class="card">
-    <h2>District-Level Poverty Data</h2>
-    <p class="desc">Absolute and relative poverty rates per district (2019 & 2022).</p>
-    <label>Filter by state:
-      <select id="poverty-state-select" onchange="loadPovertyTable()">
-        <option value="">All states</option>
-      </select>
-    </label>
-    <div id="chart-poverty-scatter" style="height:380px;"></div>
-    <div style="margin-top:18px; overflow-x:auto;">
-      <table id="poverty-table">
+      <table id="ts-metrics-table">
         <thead>
           <tr>
-            <th>State</th><th>District</th>
-            <th>Abs Poverty 2019</th><th>Abs Poverty 2022</th><th>Change</th>
-            <th>Rel Poverty 2019</th><th>Rel Poverty 2022</th>
+            <th>Series</th><th>ARIMA Order</th><th>AIC</th><th>BIC</th>
+            <th>MAE</th><th>RMSE</th><th>MAPE (%)</th><th>Stationary</th><th>Forecast End</th>
           </tr>
         </thead>
         <tbody></tbody>
       </table>
     </div>
   </div>
-</div>
+
+</div><!-- /tab-timeseries -->
+
+<!-- ══════════════════════ CLUSTERING ══════════════════════ -->
+<div id="tab-clustering" class="tab-panel">
+
+  <div class="card">
+    <h2>State Cluster Explorer</h2>
+    <p class="desc">
+      16 Malaysian states clustered by 5 features: mean CPI index, CPI volatility, CPI growth rate,
+      latest mean household income, and latest median household income. Optimal k selected via
+      Silhouette score. Each point is labelled with the state name.
+    </p>
+    <div class="chart-wrap">
+      <button class="fullscreen-btn" onclick="toggleFullscreen(this)">⛶</button>
+      <div id="chart-cluster-states" style="height:480px;"></div>
+    </div>
+  </div>
+
+  <div class="card">
+    <h2>Clustering Evaluation Metrics</h2>
+    <p class="desc">
+      Comparison of K-Means and Hierarchical (Ward linkage) clustering quality.
+      Higher Silhouette and Calinski-Harabasz are better; lower Davies-Bouldin is better.
+    </p>
+    <div style="overflow-x:auto;">
+      <table id="cluster-metrics-table">
+        <thead>
+          <tr>
+            <th>Method</th><th>K</th>
+            <th>Silhouette ↑</th><th>Davies-Bouldin ↓</th><th>Calinski-Harabasz ↑</th>
+          </tr>
+        </thead>
+        <tbody></tbody>
+      </table>
+    </div>
+  </div>
+
+  <div class="grid-2">
+    <div class="card">
+      <h2>Elbow + Silhouette Method</h2>
+      <div class="chart-wrap">
+        <button class="fullscreen-btn" onclick="toggleFullscreen(this)">⛶</button>
+        <img class="img-full" src="/figure/cluster_elbow_silhouette.png" alt="Elbow and Silhouette curves" />
+      </div>
+    </div>
+    <div class="card">
+      <h2>K-Means — PCA Projection</h2>
+      <div class="chart-wrap">
+        <button class="fullscreen-btn" onclick="toggleFullscreen(this)">⛶</button>
+        <img class="img-full" src="/figure/cluster_pca_kmeans.png" alt="K-Means PCA scatter" />
+      </div>
+    </div>
+  </div>
+
+  <div class="grid-2">
+    <div class="card">
+      <h2>Hierarchical — PCA Projection</h2>
+      <div class="chart-wrap">
+        <button class="fullscreen-btn" onclick="toggleFullscreen(this)">⛶</button>
+        <img class="img-full" src="/figure/cluster_pca_hierarchical.png" alt="Hierarchical PCA scatter" />
+      </div>
+    </div>
+    <div class="card">
+      <h2>Cluster Socioeconomic Profiles</h2>
+      <div class="chart-wrap">
+        <button class="fullscreen-btn" onclick="toggleFullscreen(this)">⛶</button>
+        <img class="img-full" src="/figure/cluster_profiles.png" alt="Cluster radar profiles" />
+      </div>
+    </div>
+  </div>
+
+  <div class="card">
+    <h2>Hierarchical Clustering — Dendrogram</h2>
+    <div class="chart-wrap">
+      <button class="fullscreen-btn" onclick="toggleFullscreen(this)">⛶</button>
+      <img class="img-full" src="/figure/cluster_dendrogram.png" alt="Ward linkage dendrogram" />
+    </div>
+  </div>
+
+</div><!-- /tab-clustering -->
+
+<!-- ══════════════════════ FUEL ══════════════════════ -->
+<div id="tab-fuel" class="tab-panel">
+
+  <div class="card">
+    <h2>Retail Fuel Prices — Monthly Average</h2>
+    <p class="desc">
+      Monthly retail prices for RON95, RON97, and Diesel in RM per litre (2017–present).
+      Data resampled from weekly pump prices reported by DOSM.
+    </p>
+    <div class="chart-wrap">
+      <button class="fullscreen-btn" onclick="toggleFullscreen(this)">⛶</button>
+      <div id="chart-fuel-prices" style="height:380px;"></div>
+    </div>
+  </div>
+
+  <div class="card">
+    <h2>Fuel-Inflation Correlation Analysis</h2>
+    <p class="desc">
+      Pearson correlation between monthly fuel prices and national CPI year-on-year inflation.
+      <strong>Contemporaneous:</strong> same month. <strong>Lag-1:</strong> fuel price leads
+      inflation by one month. Values closer to ±1 indicate stronger linear association.
+    </p>
+    <div id="fuel-corr-meta" class="metric-row"></div>
+    <div class="chart-wrap">
+      <button class="fullscreen-btn" onclick="toggleFullscreen(this)">⛶</button>
+      <div id="chart-fuel-correlation" style="height:360px;"></div>
+    </div>
+  </div>
+
+</div><!-- /tab-fuel -->
 
 </main>
 
@@ -380,7 +471,14 @@
 </footer>
 
 <script>
-// ─── Tab switching ─────────────────────────────────────────────────────────
+// ─── Constants ────────────────────────────────────────────────────────────────
+const PALETTE = [
+  '#1a3c6e','#e8523a','#22c55e','#a855f7',
+  '#f59e0b','#06b6d4','#ec4899','#84cc16',
+  '#f97316','#8b5cf6','#14b8a6','#ef4444',
+];
+
+// ─── Tab switching ────────────────────────────────────────────────────────────
 function showTab(id, btn) {
   document.querySelectorAll('.tab-panel').forEach(p => p.classList.remove('active'));
   document.querySelectorAll('nav button').forEach(b => b.classList.remove('active'));
@@ -388,40 +486,129 @@ function showTab(id, btn) {
   btn.classList.add('active');
 }
 
-// ─── Overview ──────────────────────────────────────────────────────────────
-async function loadOverview() {
+// ─── Overview: national inflation ────────────────────────────────────────────
+async function loadNationalInflation() {
   const res = await fetch('/api/overview');
+  if (!res.ok) return;
   const data = await res.json();
-  const states = data.map(d => d.state);
-  const income = data.map(d => d.income_mean);
-  const gini   = data.map(d => d.gini);
-  const pov    = data.map(d => d.poverty);
 
-  Plotly.newPlot('chart-state-income', [
-    { name: 'Mean Income (RM)', x: states, y: income, type: 'bar',
-      marker: { color: '#1a3c6e' }, yaxis: 'y1' },
-    { name: 'Poverty Rate (%)', x: states, y: pov, type: 'scatter',
-      mode: 'lines+markers', marker: { color: '#e8523a', size: 7 },
-      yaxis: 'y2', line: { width: 2 } },
+  const dates = data.map(d => d.date);
+  const yoy   = data.map(d => d.inflation_yoy);
+  const mom   = data.map(d => d.inflation_mom);
+
+  Plotly.newPlot('chart-national-inflation', [
+    {
+      name: 'YoY Inflation (%)',
+      x: dates, y: yoy, type: 'scatter', mode: 'lines',
+      line: { color: '#1a3c6e', width: 2.5 },
+    },
+    {
+      name: 'MoM Inflation (%)',
+      x: dates, y: mom, type: 'bar',
+      marker: { color: mom.map(v => (v ?? 0) >= 0 ? '#e8523a' : '#22c55e'), opacity: 0.6 },
+      yaxis: 'y2',
+    },
   ], {
-    yaxis: { title: 'Mean Income (RM)', side: 'left' },
-    yaxis2: { title: 'Poverty Rate (%)', overlaying: 'y', side: 'right' },
-    legend: { orientation: 'h', y: -0.2 },
-    margin: { t: 20 },
+    xaxis: { title: 'Date', type: 'date', tickformat: '%b %Y' },
+    yaxis: { title: 'YoY Inflation (%)' },
+    yaxis2: {
+      title: 'MoM Inflation (%)', overlaying: 'y', side: 'right',
+      showgrid: false, zeroline: false,
+    },
+    legend: { orientation: 'h', y: -0.22 },
+    margin: { t: 20, r: 64 },
+    shapes: [{ type:'line', x0:dates[0], x1:dates[dates.length-1],
+               y0:0, y1:0, line:{ color:'#9ca3af', width:1, dash:'dot' } }],
   }, { responsive: true });
 }
 
-// ─── Time Series — live SSE streaming ─────────────────────────────────────
-let _liveFetchController = null;
-let _lastForecastData    = null;
+// ─── Overview: division trends ────────────────────────────────────────────────
+async function loadDivisionTrends() {
+  const res = await fetch('/api/overview/divisions');
+  if (!res.ok) return;
+  const data = await res.json();
 
-async function loadTsStates() {
-  const res    = await fetch('/api/ts/states');
-  const states = await res.json();
-  const sel    = document.getElementById('ts-state-select');
-  sel.innerHTML = states.map(s => `<option value="${s}">${s}</option>`).join('');
-  loadForecastLive();
+  // Group by division_label, exclude overall (shown separately above)
+  const byDiv = {};
+  data.forEach(d => {
+    const lbl = d.division_label || d.division;
+    if (d.division === 'overall') return;
+    if (!byDiv[lbl]) byDiv[lbl] = { dates: [], values: [] };
+    byDiv[lbl].dates.push(d.date);
+    byDiv[lbl].values.push(d.inflation_yoy);
+  });
+
+  // Overall as bold black line
+  const overallData = data.filter(d => d.division === 'overall');
+  const traces = [];
+  if (overallData.length) {
+    traces.push({
+      name: 'Overall CPI', type: 'scatter', mode: 'lines',
+      x: overallData.map(d => d.date), y: overallData.map(d => d.inflation_yoy),
+      line: { color: '#000', width: 2.5 },
+    });
+  }
+
+  Object.entries(byDiv).forEach(([lbl, s], i) => {
+    traces.push({
+      name: lbl, type: 'scatter', mode: 'lines',
+      x: s.dates, y: s.values,
+      line: { color: PALETTE[i % PALETTE.length], width: 1.6 },
+    });
+  });
+
+  Plotly.newPlot('chart-division-trends', traces, {
+    xaxis: { title: 'Date', type: 'date', tickformat: '%b %Y' },
+    yaxis: { title: 'YoY Inflation (%)' },
+    shapes: [{ type:'line', x0:traces[0]?.x[0], x1:traces[0]?.x?.at(-1),
+               y0:0, y1:0, line:{ color:'#9ca3af', width:1, dash:'dot' } }],
+    legend: { orientation: 'v', x: 1.01, y: 1, font: { size: 11 } },
+    margin: { t: 20, r: 220 },
+  }, { responsive: true });
 }
+
+// ─── Overview: state CPI explorer ─────────────────────────────────────────────
+async function loadStateCPIStates() {
+  const res = await fetch('/api/cpi/states');
+  if (!res.ok) return;
+  const states = await res.json();
+  const sel = document.getElementById('state-cpi-select');
+  sel.innerHTML = states.map(s => `<option value="${s}">${s}</option>`).join('');
+  loadStateCPI();
+}
+
+async function loadStateCPI() {
+  const state = document.getElementById('state-cpi-select').value;
+  if (!state) return;
+  const res = await fetch('/api/cpi/state?state=' + encodeURIComponent(state));
+  if (!res.ok) return;
+  const data = await res.json();
+
+  Plotly.newPlot('chart-state-cpi', [{
+    name: state,
+    x: data.map(d => d.date), y: data.map(d => d.index),
+    type: 'scatter', mode: 'lines',
+    line: { color: '#1a3c6e', width: 2 },
+    fill: 'tozeroy', fillcolor: 'rgba(26,60,110,0.07)',
+  }], {
+    xaxis: { title: 'Date', type: 'date', tickformat: '%b %Y' },
+    yaxis: { title: 'CPI Index (Base 2010 = 100)' },
+    title: { text: 'CPI Index — ' + state, font: { size: 13 } },
+    margin: { t: 40, r: 20 },
+  }, { responsive: true });
+}
+
+// ─── Time series: pre-computed forecast (fast initial load) ───────────────────
+async function loadPrecomputedForecast() {
+  const res = await fetch('/api/ts/forecast');
+  if (!res.ok) return;
+  const d = await res.json();
+  renderForecastChart(d);
+  updateForecastMetrics(d);
+}
+
+// ─── Time series: live ARIMA via SSE ─────────────────────────────────────────
+let _liveController = null;
 
 function setProgress(pct, label) {
   const wrap = document.getElementById('ts-progress-wrap');
@@ -436,84 +623,89 @@ function hideProgress() {
 }
 
 function renderForecastChart(d) {
-  const state      = document.getElementById('ts-state-select').value;
-  const histMode   = document.getElementById('ts-history-range').value;
-  const forecastTo = d.forecast.years.at(-1);
-  const cutYear    = histMode === 'all' ? 0 : forecastTo - parseInt(histMode);
+  const train    = d.train    || {};
+  const test     = d.test     || {};
+  const forecast = d.forecast || {};
 
-  const clip = (years, vals) => {
-    if (!cutYear) return [years, vals];
-    const idx = years.findIndex(y => y >= cutYear);
-    return idx < 0 ? [years, vals] : [years.slice(idx), vals.slice(idx)];
-  };
+  // Confidence interval as a filled polygon
+  const ciX = [...(forecast.dates || []), ...(forecast.dates || []).slice().reverse()];
+  const ciY = [...(forecast.upper || []), ...(forecast.lower || []).slice().reverse()];
 
-  const [trainY, trainG] = clip(d.train.years, d.train.gini);
-  const forecastLabel    = `Forecast ${d.forecast.years[0]}–${forecastTo}`;
+  const orderStr = d.arima_order ? 'ARIMA' + JSON.stringify(d.arima_order) : 'ARIMA';
 
   Plotly.react('chart-ts-forecast', [
-    { name: 'Historical (train)',  x: trainY,           y: trainG,
-      mode: 'lines+markers', marker: { size: 3, color: '#1a3c6e' },
-      line: { color: '#1a3c6e', width: 1.5 } },
-    { name: 'Actual (test)',       x: d.test.years,     y: d.test.actual,
-      mode: 'lines+markers', marker: { size: 7, color: '#22c55e' },
-      line: { color: '#22c55e', width: 2 } },
-    { name: 'Predicted (test)',    x: d.test.years,     y: d.test.predicted,
-      mode: 'lines+markers', marker: { size: 7, color: '#ef4444', symbol: 'diamond' },
-      line: { color: '#ef4444', dash: 'dash', width: 2 } },
-    { name: forecastLabel,         x: d.forecast.years, y: d.forecast.gini,
-      mode: 'lines+markers', marker: { size: 8, color: '#a855f7', symbol: 'triangle-up' },
-      line: { color: '#a855f7', dash: 'dot', width: 2.5 } },
+    {
+      name: 'Historical (train)', type: 'scatter', mode: 'lines',
+      x: train.dates, y: train.values,
+      line: { color: '#1a3c6e', width: 1.5 },
+    },
+    {
+      name: 'Actual (test)', type: 'scatter', mode: 'lines+markers',
+      x: test.dates, y: test.actual,
+      marker: { size: 6, color: '#22c55e' }, line: { color: '#22c55e', width: 2 },
+    },
+    {
+      name: 'Predicted (test)', type: 'scatter', mode: 'lines+markers',
+      x: test.dates, y: test.predicted,
+      marker: { size: 6, color: '#ef4444', symbol: 'diamond' },
+      line: { color: '#ef4444', dash: 'dash', width: 2 },
+    },
+    {
+      name: '95% CI', type: 'scatter', mode: 'none',
+      x: ciX, y: ciY, fill: 'toself',
+      fillcolor: 'rgba(168,85,247,0.13)', line: { color: 'transparent' }, hoverinfo: 'skip',
+    },
+    {
+      name: 'Forecast', type: 'scatter', mode: 'lines+markers',
+      x: forecast.dates, y: forecast.values,
+      marker: { size: 7, color: '#a855f7', symbol: 'triangle-up' },
+      line: { color: '#a855f7', dash: 'dot', width: 2.5 },
+    },
   ], {
-    title: `Gini Forecast — ${state}  (ARIMA${JSON.stringify(d.arima_order)})`,
-    xaxis: { title: 'Year' },
-    yaxis: { title: 'Gini Coefficient', range: [0.18, 0.62] },
-    shapes: [{
-      type: 'line', x0: d.test.years[0], x1: d.test.years[0],
+    title: { text: 'National CPI Inflation Forecast — ' + orderStr, font: { size: 13 } },
+    xaxis: { title: 'Date', type: 'date', tickformat: '%b %Y' },
+    yaxis: { title: 'CPI Inflation YoY (%)' },
+    shapes: (test.dates && test.dates[0]) ? [{
+      type: 'line', x0: test.dates[0], x1: test.dates[0],
       yref: 'paper', y0: 0, y1: 1,
       line: { color: '#9ca3af', dash: 'dot', width: 1.2 },
-    }],
-    annotations: [{
-      x: d.test.years[0], y: 1, yref: 'paper', xanchor: 'left',
-      text: 'test split', showarrow: false,
-      font: { size: 10, color: '#9ca3af' },
-    }],
-    legend: { orientation: 'h', y: -0.24 },
+    }] : [],
+    annotations: (test.dates && test.dates[0]) ? [{
+      x: test.dates[0], y: 1, yref: 'paper', xanchor: 'left',
+      text: 'test split', showarrow: false, font: { size: 10, color: '#9ca3af' },
+    }] : [],
+    legend: { orientation: 'h', y: -0.22 },
     margin: { t: 48, r: 20 },
   }, { responsive: true });
 }
 
 function updateForecastMetrics(d) {
-  const m = d.metrics;
-  const s = d.stationarity;
+  const m = d.metrics || {};
+  const s = d.stationarity || {};
   document.getElementById('ts-metrics').innerHTML = `
-    <div class="metric-chip">MAE <strong>${m.MAE}</strong></div>
-    <div class="metric-chip">RMSE <strong>${m.RMSE}</strong></div>
-    <div class="metric-chip">MAPE <strong>${m.MAPE}%</strong></div>
-    <div class="metric-chip">ADF p-value <strong>${s.p_value}</strong></div>
+    <div class="metric-chip">MAE <strong>${m.MAE ?? '—'}</strong></div>
+    <div class="metric-chip">RMSE <strong>${m.RMSE ?? '—'}</strong></div>
+    <div class="metric-chip">MAPE <strong>${m.MAPE != null ? m.MAPE + '%' : '—'}</strong></div>
+    <div class="metric-chip">AIC <strong>${d.aic ?? '—'}</strong></div>
+    <div class="metric-chip">BIC <strong>${d.bic ?? '—'}</strong></div>
+    <div class="metric-chip">ADF p-value <strong>${s.p_value ?? '—'}</strong></div>
     <div class="metric-chip">Stationary <strong>${s.is_stationary ? '✅ Yes' : '⚠ No'}</strong></div>
   `;
 }
 
-function rerenderForecastChart() {
-  if (_lastForecastData) renderForecastChart(_lastForecastData);
-}
-
 async function loadForecastLive() {
-  const state   = document.getElementById('ts-state-select').value;
   const horizon = document.getElementById('ts-horizon-slider').value;
-  if (!state) return;
+  const btn = document.getElementById('ts-run-btn');
 
-  // Cancel any in-flight request
-  if (_liveFetchController) _liveFetchController.abort();
-  _liveFetchController = new AbortController();
-
+  if (_liveController) _liveController.abort();
+  _liveController = new AbortController();
+  btn.disabled = true;
   setProgress(5, 'Initialising…');
 
   try {
-    const res = await fetch(
-      `/api/ts/live?state=${encodeURIComponent(state)}&horizon=${horizon}`,
-      { signal: _liveFetchController.signal }
-    );
+    const res = await fetch('/api/ts/live?horizon=' + horizon, {
+      signal: _liveController.signal,
+    });
 
     const reader  = res.body.getReader();
     const decoder = new TextDecoder();
@@ -534,7 +726,6 @@ async function loadForecastLive() {
         if (evt.type === 'progress') {
           setProgress(evt.pct, evt.step);
         } else if (evt.type === 'result') {
-          _lastForecastData = evt.data;
           setProgress(100, 'Done');
           renderForecastChart(evt.data);
           updateForecastMetrics(evt.data);
@@ -546,122 +737,150 @@ async function loadForecastLive() {
     }
   } catch (e) {
     if (e.name !== 'AbortError') setProgress(0, '⚠ ' + e.message);
+  } finally {
+    btn.disabled = false;
   }
 }
 
 async function loadTsMetricsTable() {
-  const res  = await fetch('/api/ts/metrics');
+  const res = await fetch('/api/ts/metrics');
+  if (!res.ok) return;
   const data = await res.json();
   const tbody = document.querySelector('#ts-metrics-table tbody');
-  tbody.innerHTML = data.map(r => {
-    const v     = r['Forecast 2030'];
-    const badge = v > 0.4
-      ? `<span class="badge badge-red">${v}</span>`
-      : v > 0.35
-      ? `<span class="badge badge-yellow">${v}</span>`
-      : `<span class="badge badge-green">${v}</span>`;
-    return `<tr>
-      <td>${r.State}</td><td>${r.MAE}</td><td>${r.RMSE}</td>
-      <td>${r['MAPE (%)']}</td><td>${badge}</td>
-    </tr>`;
-  }).join('');
+  tbody.innerHTML = data.map(r => `
+    <tr>
+      <td>${r['Series'] ?? '—'}</td>
+      <td>${r['ARIMA Order'] ?? '—'}</td>
+      <td>${r['AIC'] ?? '—'}</td>
+      <td>${r['BIC'] ?? '—'}</td>
+      <td>${r['MAE'] ?? '—'}</td>
+      <td>${r['RMSE'] ?? '—'}</td>
+      <td>${r['MAPE (%)'] ?? '—'}</td>
+      <td>${r['Stationary (train)'] ?? '—'}</td>
+      <td>${r['Forecast End (avg %)'] ?? '—'}</td>
+    </tr>
+  `).join('');
 }
 
-// ─── Clustering ────────────────────────────────────────────────────────────
-async function loadClusterMetrics() {
-  const res = await fetch('/api/cluster/metrics');
-  const data = await res.json();
-  const tbody = document.querySelector('#cluster-metrics-table tbody');
-  tbody.innerHTML = data.map(r =>
-    `<tr><td>${r.Method}</td><td>${r.K}</td><td>${r.Silhouette}</td>
-     <td>${r['Davies-Bouldin']}</td><td>${r['Calinski-Harabasz']}</td></tr>`
-  ).join('');
-}
-
+// ─── Clustering ───────────────────────────────────────────────────────────────
 async function loadClusterChart() {
-  const res = await fetch('/api/cluster/districts');
+  const res = await fetch('/api/cluster/states');
+  if (!res.ok) return;
   const data = await res.json();
+
   const labels = [...new Set(data.map(d => d.cluster_label))].sort();
-  const palette = ['#1a3c6e','#e8523a','#22c55e','#a855f7','#f59e0b','#06b6d4'];
   const traces = labels.map((lbl, i) => {
     const pts = data.filter(d => d.cluster_label === lbl);
     return {
-      name: lbl,
-      x: pts.map(d => d.income_mean),
-      y: pts.map(d => d.poverty),
-      text: pts.map(d => `${d.district}, ${d.state}`),
-      mode: 'markers',
-      marker: { size: 8, color: palette[i % palette.length], opacity: 0.75 },
-      type: 'scatter',
+      name: lbl, type: 'scatter', mode: 'markers+text',
+      x: pts.map(d => d.income_mean_latest),
+      y: pts.map(d => d.cpi_growth_rate),
+      text: pts.map(d => d.state),
+      textposition: 'top center',
+      textfont: { size: 10 },
+      marker: { size: 14, color: PALETTE[i % PALETTE.length], opacity: 0.85 },
     };
   });
-  Plotly.newPlot('chart-cluster-district', traces, {
-    title: 'District Clusters: Mean Income vs Poverty',
-    xaxis: { title: 'Mean Income (RM)' },
-    yaxis: { title: 'Poverty Rate (%)' },
+
+  Plotly.newPlot('chart-cluster-states', traces, {
+    title: { text: 'State Clusters: Household Income vs CPI Growth Rate', font: { size: 13 } },
+    xaxis: { title: 'Latest Mean Household Income (RM)' },
+    yaxis: { title: 'CPI Growth Rate (%)' },
     legend: { orientation: 'h', y: -0.22 },
-    margin: { t: 40 },
+    margin: { t: 48, r: 20, b: 80 },
   }, { responsive: true });
 }
 
-// ─── Poverty ───────────────────────────────────────────────────────────────
-async function loadPovertyStates() {
-  const res = await fetch('/api/poverty/states');
-  const states = await res.json();
-  const sel = document.getElementById('poverty-state-select');
-  sel.innerHTML = '<option value="">All states</option>' +
-    states.map(s => `<option value="${s}">${s}</option>`).join('');
-  loadPovertyTable();
-}
-
-async function loadPovertyTable() {
-  const state = document.getElementById('poverty-state-select').value;
-  const url = '/api/poverty/districts' + (state ? '?state=' + encodeURIComponent(state) : '');
-  const res = await fetch(url);
+async function loadClusterMetrics() {
+  const res = await fetch('/api/cluster/metrics');
+  if (!res.ok) return;
   const data = await res.json();
-
-  // Scatter chart
-  const changed = data.map(d => d.poverty_abs_change);
-  const colors = changed.map(c => c > 0 ? '#ef4444' : '#22c55e');
-  Plotly.newPlot('chart-poverty-scatter', [{
-    x: data.map(d => d.poverty_abs_2019),
-    y: data.map(d => d.poverty_abs_2022),
-    text: data.map(d => `${d.district}, ${d.state}`),
-    mode: 'markers',
-    marker: { color: colors, size: 8, opacity: 0.75 },
-    type: 'scatter',
-    name: 'District',
-  }, {
-    x: [0, Math.max(...data.map(d => d.poverty_abs_2022 || 0)) + 2],
-    y: [0, Math.max(...data.map(d => d.poverty_abs_2022 || 0)) + 2],
-    mode: 'lines', name: 'No change (y=x)',
-    line: { dash: 'dot', color: 'grey', width: 1 },
-  }], {
-    title: 'Absolute Poverty 2019 vs 2022 (above line = worsened)',
-    xaxis: { title: 'Poverty Rate 2019 (%)' },
-    yaxis: { title: 'Poverty Rate 2022 (%)' },
-    margin: { t: 40 },
-  }, { responsive: true });
-
-  // Table
-  const tbody = document.querySelector('#poverty-table tbody');
-  tbody.innerHTML = data.map(r => {
-    const chg = (r.poverty_abs_change || 0).toFixed(1);
-    const badge = +chg > 0
-      ? `<span class="badge badge-red">+${chg}</span>`
-      : +chg < 0
-      ? `<span class="badge badge-green">${chg}</span>`
-      : `<span class="badge badge-yellow">${chg}</span>`;
-    return `<tr>
-      <td>${r.state}</td><td>${r.district}</td>
-      <td>${r.poverty_abs_2019 ?? '—'}</td><td>${r.poverty_abs_2022 ?? '—'}</td>
-      <td>${badge}</td>
-      <td>${r.poverty_rel_2019 ?? '—'}</td><td>${r.poverty_rel_2022 ?? '—'}</td>
-    </tr>`;
-  }).join('');
+  const tbody = document.querySelector('#cluster-metrics-table tbody');
+  tbody.innerHTML = data.map(r => `
+    <tr>
+      <td>${r.Method}</td><td>${r.K}</td>
+      <td>${r.Silhouette}</td>
+      <td>${r['Davies-Bouldin']}</td>
+      <td>${r['Calinski-Harabasz']}</td>
+    </tr>
+  `).join('');
 }
 
-// ─── Pipeline trigger ──────────────────────────────────────────────────────
+// ─── Fuel analysis ────────────────────────────────────────────────────────────
+async function loadFuelPrices() {
+  const res = await fetch('/api/fuel/prices');
+  if (!res.ok) return;
+  const data = await res.json();
+  const dates = data.map(d => d.date);
+
+  Plotly.newPlot('chart-fuel-prices', [
+    {
+      name: 'RON95', x: dates, y: data.map(d => d.ron95),
+      type: 'scatter', mode: 'lines', line: { color: '#1a3c6e', width: 2 },
+    },
+    {
+      name: 'RON97', x: dates, y: data.map(d => d.ron97),
+      type: 'scatter', mode: 'lines', line: { color: '#e8523a', width: 2 },
+    },
+    {
+      name: 'Diesel', x: dates, y: data.map(d => d.diesel),
+      type: 'scatter', mode: 'lines', line: { color: '#22c55e', width: 2, dash: 'dash' },
+    },
+    {
+      name: 'Average', x: dates, y: data.map(d => d.avg_fuel),
+      type: 'scatter', mode: 'lines',
+      line: { color: '#9ca3af', width: 1.5, dash: 'dot' },
+    },
+  ], {
+    xaxis: { title: 'Date', type: 'date' },
+    yaxis: { title: 'Price (RM / litre)' },
+    legend: { orientation: 'h', y: -0.22 },
+    margin: { t: 20, r: 20 },
+  }, { responsive: true });
+}
+
+async function loadFuelCorrelation() {
+  const res = await fetch('/api/fuel/correlation');
+  if (!res.ok) return;
+  const d = await res.json();
+
+  document.getElementById('fuel-corr-meta').innerHTML = `
+    <div class="metric-chip">Overlap period <strong>${d.overlap_start ?? '—'} → ${d.overlap_end ?? '—'}</strong></div>
+    <div class="metric-chip">Months of overlap <strong>${d.n_overlap_months ?? '—'}</strong></div>
+  `;
+
+  const corrs     = d.correlations || {};
+  const fuelKeys  = Object.keys(corrs);
+  const labels    = fuelKeys.map(k => k.toUpperCase());
+  const contemp   = fuelKeys.map(k => corrs[k].contemporaneous ?? 0);
+  const lag1      = fuelKeys.map(k => corrs[k].lag1 ?? 0);
+
+  Plotly.newPlot('chart-fuel-correlation', [
+    {
+      name: 'Contemporaneous (r)', type: 'bar',
+      x: labels, y: contemp,
+      marker: { color: contemp.map(v => v >= 0 ? '#1a3c6e' : '#e8523a'), opacity: 0.85 },
+    },
+    {
+      name: 'Lag-1 month (r)', type: 'bar',
+      x: labels, y: lag1,
+      marker: { color: lag1.map(v => v >= 0 ? '#a855f7' : '#f59e0b'), opacity: 0.85 },
+    },
+  ], {
+    title: { text: 'Pearson r — Fuel Prices vs National CPI Inflation', font: { size: 13 } },
+    xaxis: { title: 'Fuel Type' },
+    yaxis: { title: 'Pearson r', range: [-1, 1] },
+    barmode: 'group',
+    shapes: [{
+      type: 'line', x0: -0.5, x1: fuelKeys.length - 0.5,
+      y0: 0, y1: 0, line: { color: '#9ca3af', width: 1 },
+    }],
+    legend: { orientation: 'h', y: -0.22 },
+    margin: { t: 48, r: 20 },
+  }, { responsive: true });
+}
+
+// ─── Pipeline modal ───────────────────────────────────────────────────────────
 function openRunModal() {
   document.getElementById('pipeline-modal').classList.add('open');
   document.getElementById('pipeline-log').innerHTML = '';
@@ -685,7 +904,7 @@ function openRunModal() {
       document.getElementById('run-btn').disabled = false;
       return;
     }
-    const reader = res.body.getReader();
+    const reader  = res.body.getReader();
     const decoder = new TextDecoder();
     let buf = '';
 
@@ -698,16 +917,16 @@ function openRunModal() {
         parts.forEach(part => {
           if (part.startsWith('event: done')) {
             const code = part.split('data: ')[1]?.trim();
-            const ok = code === '0';
+            const ok   = code === '0';
             document.getElementById('pipeline-status').textContent =
-              ok ? '✅ Pipeline complete — reloading data…' : '❌ Pipeline failed (see log)';
+              ok ? '✅ Pipeline complete — reloading…' : '❌ Pipeline failed (see log above)';
             document.getElementById('pipeline-close').disabled = false;
             document.getElementById('run-btn').disabled = false;
             if (ok) setTimeout(() => location.reload(), 1500);
           } else if (part.startsWith('data: ')) {
             const line = part.slice(6);
-            const cls = line.startsWith('ERROR') || line.startsWith('Traceback') ? 'err'
-                       : line.includes('complete') || line.startsWith('[') ? 'ok'
+            const cls  = (line.startsWith('ERROR') || line.includes('Traceback')) ? 'err'
+                       : (line.includes('complete') || line.startsWith('['))       ? 'ok'
                        : null;
             append(line, cls);
           }
@@ -727,12 +946,35 @@ function closeRunModal() {
   document.getElementById('pipeline-modal').classList.remove('open');
 }
 
-// ─── Init ──────────────────────────────────────────────────────────────────
+// ─── Fullscreen ──────────────────────────────────────────────────────────────
+function toggleFullscreen(btn) {
+  const wrap = btn.closest('.chart-wrap');
+  if (!document.fullscreenElement) {
+    wrap.requestFullscreen().catch(() => {});
+  } else {
+    document.exitFullscreen();
+  }
+}
+
+document.addEventListener('fullscreenchange', () => {
+  if (document.fullscreenElement) {
+    const wrap = document.fullscreenElement;
+    const plotDiv = wrap.querySelector('[id^="chart-"]');
+    if (plotDiv) setTimeout(() => Plotly.Plots.resize(plotDiv), 50);
+    const btn = wrap.querySelector('.fullscreen-btn');
+    if (btn) btn.textContent = '✕ Exit';
+  } else {
+    document.querySelectorAll('.fullscreen-btn').forEach(b => b.textContent = '⛶');
+    document.querySelectorAll('[id^="chart-"]').forEach(d => {
+      try { Plotly.Plots.resize(d); } catch (_) {}
+    });
+  }
+});
+
+// ─── Initialisation ───────────────────────────────────────────────────────────
 (async () => {
-  // Check if pipeline has been run; disable Run btn label if outputs exist
   try {
-    const s = await fetch('/api/status');
-    const { ready } = await s.json();
+    const { ready } = await (await fetch('/api/status')).json();
     if (ready) {
       document.getElementById('run-btn').classList.add('ready');
     } else {
@@ -740,12 +982,22 @@ function closeRunModal() {
     }
   } catch (_) {}
 
-  try { await loadOverview(); }         catch(_) {}
-  try { await loadTsStates(); }          catch(_) {}
-  try { await loadTsMetricsTable(); }    catch(_) {}
-  try { await loadClusterMetrics(); }    catch(_) {}
-  try { await loadClusterChart(); }      catch(_) {}
-  try { await loadPovertyStates(); }     catch(_) {}
+  // Overview
+  try { await loadNationalInflation(); }  catch (_) {}
+  try { await loadDivisionTrends(); }     catch (_) {}
+  try { await loadStateCPIStates(); }     catch (_) {}
+
+  // Time series: load pre-computed result first (fast), metrics table
+  try { await loadPrecomputedForecast(); } catch (_) {}
+  try { await loadTsMetricsTable(); }      catch (_) {}
+
+  // Clustering
+  try { await loadClusterChart(); }        catch (_) {}
+  try { await loadClusterMetrics(); }      catch (_) {}
+
+  // Fuel
+  try { await loadFuelPrices(); }          catch (_) {}
+  try { await loadFuelCorrelation(); }     catch (_) {}
 })();
 </script>
 </body>
