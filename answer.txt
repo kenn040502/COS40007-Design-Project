@@ -1,0 +1,419 @@
+================================================================================
+  WHAT THE MODELS DO — A FULL EXPLANATION
+  COS40007 Design Project | Malaysian CPI & Cost of Living Analyser
+================================================================================
+
+This project has three analytical components:
+  1. Time Series Forecasting (ARIMA)
+  2. State Clustering (K-Means + Hierarchical)
+  3. Fuel Price Analysis (Correlation with CPI)
+
+Each section below explains: where the data comes from, how it is prepared,
+what the model does, how it learns/trains, and how it predicts or analyses.
+
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+  PART 1 — TIME SERIES FORECASTING (ARIMA)
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+GOAL
+  Predict Malaysia's national CPI year-on-year (YoY) inflation for the next
+  24 months into the future.
+
+─── WHERE THE DATA COMES FROM ───────────────────────────────────────────────
+
+  Raw file  : data/raw/cpi_2d_inflation.csv
+  Content   : Monthly national CPI inflation figures for all 13 DOSM divisions
+              (e.g. Food, Transport, Health) plus an "overall" row, from 1980
+              to April 2024.
+
+  The two columns used are:
+    - date          : the month/year of the observation
+    - inflation_yoy : how much the price level rose compared to the same
+                      month one year earlier, expressed as a percentage
+
+─── HOW THE DATA IS PREPARED ────────────────────────────────────────────────
+
+  Step 1 – Load  (src/preprocessing.py → load_cpi_inflation)
+    Read the CSV. Parse the "date" column into proper datetime objects.
+    Convert inflation_yoy to numeric, replacing any text errors with NaN.
+
+  Step 2 – Filter to "overall" division  (build_overall_inflation)
+    Keep only rows where division == "overall". This gives a single national
+    figure per month. Drop any leading rows where YoY is NaN (there is no
+    prior-year reference before January 1981). Result: 544 monthly records
+    from Jan 1981 to Apr 2024.
+
+  Step 3 – Save processed file
+    Saved to data/processed/overall_inflation.csv for use by the model.
+
+─── HOW THE MODEL WORKS ─────────────────────────────────────────────────────
+
+  The model used is ARIMA (AutoRegressive Integrated Moving Average).
+  ARIMA is a classical statistical model for time series forecasting.
+  It captures patterns in a series by looking at:
+
+    AR (AutoRegressive, p) — how strongly each month's value depends on
+      the values of the p previous months.
+    I (Integrated, d) — how many times the series needs to be differenced
+      (subtracted from itself shifted by 1) to become stationary (no trend).
+    MA (Moving Average, q) — how much each month's value depends on
+      the forecast errors of the q previous months.
+
+  The final selected order is ARIMA(4, 0, 4):
+    p=4 : the model uses the past 4 months of inflation to predict the next
+    d=0 : no differencing needed — the series is already stationary
+    q=4 : the model corrects itself using the past 4 months of errors
+
+─── STATIONARITY CHECK ──────────────────────────────────────────────────────
+
+  Before choosing d, the model runs the Augmented Dickey-Fuller (ADF) test.
+  This test asks: "Does this series have a stable mean and variance over time,
+  or does it drift unpredictably?"
+
+  Result: ADF p-value = 0.0003
+  Because 0.0003 < 0.05, the series IS stationary → d = 0 (no differencing).
+  This means Malaysia's YoY inflation reverts to a stable mean over time.
+
+─── HOW ORDER (p, q) IS SELECTED ────────────────────────────────────────────
+
+  The code tries every combination of p in [0,1,2,3,4] and q in [0,1,2,3,4].
+  For each combination, it fits an ARIMA model and measures the BIC score.
+
+  BIC (Bayesian Information Criterion) penalises model complexity — a model
+  that fits the data well but uses fewer parameters gets a lower (better) BIC.
+  This prevents overfitting.
+
+  The combination with the lowest BIC wins: ARIMA(4, 0, 4)
+    AIC = 926.16
+    BIC = 969.15
+
+─── TRAINING VS TESTING ─────────────────────────────────────────────────────
+
+  The 544 months of data are split into two parts:
+
+    Training set : months 1 to 520 (Jan 1981 – Apr 2022)
+      The model learns all its coefficients from this data.
+
+    Test set     : last 24 months (May 2022 – Apr 2024)
+      These months are kept hidden during training. After the model is
+      fitted on training data, it predicts these 24 months. The predictions
+      are then compared to the real values to measure accuracy.
+
+  Evaluation metrics on the test set:
+    MAE  = 0.9502  → on average, predictions are off by 0.95 percentage points
+    RMSE = 1.0697  → root-mean-squared error (penalises large errors more)
+    MAPE = 66.35%  → high because near-zero inflation months cause division
+                     by near-zero, inflating the percentage error metric
+
+─── HOW IT PREDICTS ─────────────────────────────────────────────────────────
+
+  After evaluating on the test set, the model is refitted on the FULL 544
+  months (including the test period). This gives the most up-to-date possible
+  model. It then predicts the next 24 months beyond April 2024.
+
+  For each future month, ARIMA uses a mathematical equation:
+    value(t) = c + φ1·value(t-1) + φ2·value(t-2) + ... + φ4·value(t-4)
+                 + θ1·error(t-1) + θ2·error(t-2) + ... + θ4·error(t-4)
+
+  Where φ are the autoregressive weights and θ are the moving-average weights,
+  all estimated during training.
+
+  Along with the central forecast, a 95% confidence interval is calculated.
+  The interval widens as you predict further into the future, reflecting
+  increasing uncertainty.
+
+  Forecast result: Average predicted YoY inflation for the last 6 forecast
+  months ≈ 2.83%, indicating mild inflation expected ahead.
+
+─── OUTPUTS ─────────────────────────────────────────────────────────────────
+
+  outputs/models/arima_results.json  — all dates, actual values, predicted
+                                       values, forecast + confidence intervals
+  outputs/models/ts_metrics_summary.csv — MAE, RMSE, MAPE, AIC, BIC
+  outputs/figures/ts_forecast.png    — 2-panel chart (full history + test zoom)
+
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+  PART 2 — STATE CLUSTERING (K-Means + Hierarchical)
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+GOAL
+  Group all 16 Malaysian states into clusters based on their price level
+  behaviour and household income profile. States within the same cluster
+  are economically similar; states in different clusters are meaningfully
+  different. No labels are given in advance — the model discovers the groups.
+
+─── WHERE THE DATA COMES FROM ───────────────────────────────────────────────
+
+  Two raw files are combined:
+
+  data/raw/cpi_2d_state.csv
+    Monthly CPI index by state and division (2010 – present).
+    The base year is 2010 = 100. A value of 130 means prices are 30% higher
+    than 2010. Only the "overall" division row is used.
+
+  data/raw/hh_income_state.csv
+    Survey-based mean and median household income per state.
+    Collected every few years (1970–2022). Only the most recent survey
+    year per state is used (latest income snapshot).
+
+─── HOW THE DATA IS PREPARED ────────────────────────────────────────────────
+
+  Step 1 – Load both files  (src/preprocessing.py)
+    Parse dates, convert numeric columns, drop rows with missing values.
+
+  Step 2 – Build state features  (build_state_features)
+    From each state's CPI history, calculate 3 summary statistics:
+
+      mean_cpi_index       — average CPI index across all available months
+                             (measures overall price level)
+      cpi_growth_rate      — percentage change from the earliest to the
+                             latest CPI month
+                             (how much prices have grown since 2010)
+      cpi_volatility       — standard deviation of the monthly CPI index
+                             (measures price stability — low = stable)
+
+    From income data, take the most recent survey year per state:
+      income_mean_latest   — mean household income (RM per month)
+      income_median_latest — median household income (RM per month)
+
+    Result: one row per state, 5 feature columns → a 16×5 matrix.
+
+  Step 3 – Standardise features  (src/clustering.py → prepare_features)
+    Apply StandardScaler: subtract the mean and divide by the standard
+    deviation for each feature column. This puts all 5 features on the
+    same scale so that income (in thousands of RM) does not dominate
+    CPI index values (around 100–150).
+
+─── HOW THE OPTIMAL NUMBER OF CLUSTERS IS CHOSEN ────────────────────────────
+
+  The model tries k = 2, 3, 4, 5, 6, 7, 8 clusters and scores each:
+
+  Silhouette score (higher = better):
+    Measures how similar each state is to its own cluster vs. other clusters.
+    Ranges from -1 (wrong cluster) to +1 (perfect fit).
+
+  Davies-Bouldin index (lower = better):
+    Ratio of within-cluster scatter to between-cluster separation.
+
+  Calinski-Harabasz score (higher = better):
+    Ratio of between-cluster to within-cluster dispersion.
+
+  The Silhouette score is used to pick the winner. Best k = 2.
+  Silhouette scores across k values:
+    k=2: 0.576  ← highest → selected
+    k=3: 0.467
+    k=4: 0.384
+    k=5: 0.344  ... (declining from here)
+
+─── K-MEANS CLUSTERING ──────────────────────────────────────────────────────
+
+  K-Means partitions the 16 states into 2 groups by minimising the total
+  within-cluster sum of squared distances (inertia).
+
+  Algorithm:
+    1. Randomly place 2 cluster centres in the 5-dimensional feature space.
+    2. Assign each state to the nearest centre.
+    3. Recalculate each centre as the mean of the states assigned to it.
+    4. Repeat steps 2–3 until assignments stop changing.
+    5. Repeat 10 times with different random starts; keep the best result.
+
+  K-Means scores (k=2):
+    Silhouette        = 0.5764  (good separation)
+    Davies-Bouldin    = 0.5953  (compact, well-separated clusters)
+    Calinski-Harabasz = 32.68
+
+─── HIERARCHICAL CLUSTERING (WARD LINKAGE) ──────────────────────────────────
+
+  Hierarchical clustering builds a tree (dendrogram) of merges from the
+  bottom up. Every state starts as its own cluster. At each step, the two
+  clusters that are "closest" are merged. This continues until all 16 states
+  are in one big cluster. The tree is then cut at k=2 to get the final groups.
+
+  Ward linkage defines "closest" as the pair of clusters whose merger
+  produces the smallest increase in total within-cluster variance.
+  This tends to produce compact, similarly-sized clusters.
+
+  Hierarchical scores (k=2):
+    Silhouette        = 0.4457
+    Davies-Bouldin    = 0.7683
+    Calinski-Harabasz = 20.12
+
+  K-Means outperforms Hierarchical on all three metrics at k=2.
+
+─── HOW CLUSTERS ARE LABELLED ───────────────────────────────────────────────
+
+  After clustering, the code orders clusters by mean income (ascending) and
+  assigns human-readable semantic labels:
+    "Low Income & Low CPI"   — states with lower income and lower price levels
+    "High Income & High CPI" — states with higher income and higher price levels
+
+─── VISUALISATION ───────────────────────────────────────────────────────────
+
+  Because the features are 5-dimensional (not directly plottable), PCA
+  (Principal Component Analysis) reduces them to 2 dimensions so the
+  clusters can be shown in a scatter plot. Each point is labelled with
+  the state name.
+
+  The dendrogram chart shows the entire merge history — how distant two
+  groups of states are determines how high their merge bar appears on the y-axis.
+
+─── OUTPUTS ─────────────────────────────────────────────────────────────────
+
+  outputs/models/clustering_results.json         — best k, all scores, label maps
+  outputs/models/cluster_metrics_summary.csv     — side-by-side score comparison
+  outputs/figures/cluster_elbow_silhouette.png   — elbow + silhouette + DB curves
+  outputs/figures/cluster_pca_kmeans.png         — K-Means states on PCA axes
+  outputs/figures/cluster_pca_hierarchical.png   — Hierarchical states on PCA axes
+  outputs/figures/cluster_profiles.png           — heatmap of feature means per cluster
+  outputs/figures/cluster_dendrogram.png         — Ward linkage merge tree
+
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+  PART 3 — FUEL PRICE ANALYSIS
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+GOAL
+  Measure the statistical relationship between retail fuel prices and
+  national CPI inflation. Specifically: when fuel prices go up or down,
+  does CPI inflation follow? And does it react immediately or with a delay?
+
+─── WHERE THE DATA COMES FROM ───────────────────────────────────────────────
+
+  data/raw/fuelprice.csv
+    Weekly retail pump prices for RON95, RON97, and Diesel in RM per litre,
+    reported by DOSM from 2017 to present.
+    The file has a "series_type" column. Only rows where series_type == "level"
+    are kept (these are actual prices, not changes or indexes).
+
+  data/processed/overall_inflation.csv
+    The national CPI YoY inflation series prepared in Part 1.
+
+─── HOW THE DATA IS PREPARED ────────────────────────────────────────────────
+
+  Step 1 – Load fuel prices  (src/preprocessing.py → load_fuelprice)
+    Read the CSV. Parse dates. Filter to series_type == "level".
+    Keep only columns: date, ron95, ron97, diesel.
+    Drop rows with any missing price. Sort by date.
+
+  Step 2 – Resample from weekly to monthly
+    CPI data is monthly. Fuel prices are weekly. To compare them on the same
+    timeline, the weekly prices are resampled to monthly by taking the mean
+    of all weeks within each calendar month (using "MS" = month start frequency).
+
+  Step 3 – Compute average fuel price
+    avg_fuel = mean of (ron95, ron97, diesel) for each month.
+    This gives a single "overall fuel price" representative of all fuel types.
+
+  Step 4 – Merge with inflation  (src/time_series.py → compute_fuel_correlation)
+    Join fuel prices and CPI inflation on the "date" column. Only months that
+    exist in BOTH datasets are kept (inner join). This produces the overlapping
+    period: 2017 – Apr 2024 (approximately 87 months).
+
+─── HOW THE ANALYSIS WORKS ──────────────────────────────────────────────────
+
+  This is NOT a machine learning model. It is a statistical correlation
+  analysis. No training or prediction happens — instead the code measures
+  how closely two variables move together.
+
+  PEARSON CORRELATION (r):
+    A number between -1 and +1.
+      r = +1 : when fuel price goes up, inflation always goes up exactly
+      r =  0 : no linear relationship
+      r = -1 : when fuel price goes up, inflation always goes down
+
+  Two types of correlation are computed for each fuel type:
+
+  1. Contemporaneous correlation
+     Compares fuel price in month T with CPI inflation in month T.
+     Answers: "Do they move together right now?"
+
+  2. Lag-1 correlation
+     Compares fuel price in month T with CPI inflation in month T+1.
+     Answers: "Does a change in fuel price predict inflation ONE MONTH later?"
+     This tests whether fuel prices LEAD inflation (i.e. fuel price changes
+     take one month to flow through the economy into consumer prices).
+
+  The analysis is done for each of the four price series:
+    RON95, RON97, Diesel, avg_fuel
+
+─── WHAT THE SCATTER PLOT SHOWS ─────────────────────────────────────────────
+
+  A scatter plot of avg_fuel (x-axis) vs inflation_yoy (y-axis) is drawn,
+  with each dot representing one month. An OLS (Ordinary Least Squares)
+  regression line is fitted through the dots using scipy.stats.linregress.
+  The slope of this line shows the direction of the relationship; the
+  Pearson r value and p-value (statistical significance) are displayed.
+
+─── WHAT THE BAR CHART SHOWS ────────────────────────────────────────────────
+
+  A grouped bar chart shows contemporaneous and lag-1 correlation side by
+  side for each fuel type. This lets you see at a glance which fuel type
+  has the strongest relationship with inflation, and whether the effect is
+  immediate or delayed by one month.
+
+─── OUTPUTS ─────────────────────────────────────────────────────────────────
+
+  outputs/models/fuel_correlation.json              — all r values, overlap dates,
+                                                      merged monthly data
+  outputs/figures/eval_fuel_cpi_correlation.png     — scatter + bar chart
+
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+  PIPELINE ORDER — HOW EVERYTHING CONNECTS
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+  run_pipeline.py orchestrates all steps in order:
+
+  1. Preprocessing  (src/preprocessing.py)
+       Read 4 raw CSV files → clean → compute features → save to data/processed/
+
+  2. Time Series    (src/time_series.py)
+       Read overall_inflation.csv → ADF test → BIC order search → train ARIMA →
+       evaluate on 24-month test → refit on full data → forecast 24 months →
+       compute fuel correlation → save results + figures
+
+  3. Clustering     (src/clustering.py)
+       Read state_features.csv → standardise → silhouette search for best k →
+       fit K-Means and Hierarchical → PCA visualisation → save results + figures
+
+  4. Evaluation     (src/evaluation.py)
+       Read saved model results → produce comparison tables, fuel scatter,
+       state CPI growth bar chart, division inflation heatmap → save figures
+
+  5. Dashboard      (app/dashboard.py)
+       Flask web server that reads all saved outputs and serves them via a
+       browser UI with interactive Plotly charts and live ARIMA re-runs.
+
+================================================================================
+  KEY NUMBERS SUMMARY
+================================================================================
+
+  TIME SERIES (ARIMA)
+    Data range       : Jan 1981 – Apr 2024  (544 months)
+    Training months  : 520
+    Test months      : 24 (May 2022 – Apr 2024)
+    Selected order   : ARIMA(4, 0, 4)
+    ADF p-value      : 0.0003 (stationary)
+    AIC              : 926.16
+    BIC              : 969.15
+    MAE (test)       : 0.9502 percentage points
+    RMSE (test)      : 1.0697 percentage points
+    MAPE (test)      : 66.35% (inflated by near-zero denominator months)
+    Forecast avg     : ~2.83% YoY inflation expected
+
+  CLUSTERING
+    States           : 16
+    Features         : 5 (mean CPI, CPI growth, CPI volatility, mean income, median income)
+    Optimal k        : 2  (by Silhouette score = 0.576)
+    K-Means          : Silhouette=0.5764, DB=0.5953, CH=32.68
+    Hierarchical     : Silhouette=0.4457, DB=0.7683, CH=20.12
+    Winner           : K-Means (better on all 3 metrics)
+
+  FUEL ANALYSIS
+    Overlap period   : 2017 – Apr 2024 (~87 months)
+    Method           : Pearson correlation (contemporaneous + lag-1)
+    Fuel types       : RON95, RON97, Diesel, avg_fuel
+
+================================================================================
