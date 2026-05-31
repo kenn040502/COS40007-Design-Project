@@ -184,6 +184,37 @@
       border-radius: 6px; background: #fff; cursor: pointer; font-size: 0.85rem;
     }
 
+    /* ── State detail panel ── */
+    #state-detail-panel {
+      display: none; margin-top: 18px;
+      border: 1.5px solid var(--border); border-radius: 10px;
+      background: var(--card); overflow: hidden;
+    }
+    #state-detail-panel.visible { display: block; }
+    #state-detail-header {
+      background: var(--primary); color: #fff;
+      padding: 12px 20px; display: flex; align-items: center; justify-content: space-between;
+    }
+    #state-detail-header h3 { font-size: 1rem; font-weight: 700; margin: 0; }
+    #state-detail-header span { font-size: 0.8rem; opacity: 0.8; }
+    #state-detail-close {
+      background: transparent; border: 1px solid rgba(255,255,255,0.4);
+      color: #fff; border-radius: 5px; padding: 3px 10px;
+      font-size: 0.8rem; cursor: pointer; line-height: 1.6;
+    }
+    #state-detail-close:hover { background: rgba(255,255,255,0.15); }
+    #state-detail-body { padding: 18px 20px; }
+    #state-detail-chips { display: flex; flex-wrap: wrap; gap: 10px; margin-bottom: 16px; }
+    .detail-chip {
+      background: var(--bg); border: 1px solid var(--border);
+      border-radius: 7px; padding: 8px 14px; min-width: 130px;
+    }
+    .detail-chip .dc-label { font-size: 0.72rem; color: var(--muted); margin-bottom: 3px; }
+    .detail-chip .dc-value { font-size: 1.1rem; font-weight: 700; color: var(--primary); }
+    .detail-chip .dc-vs    { font-size: 0.72rem; color: var(--muted); margin-top: 2px; }
+    .detail-chip .dc-up   { color: #e8523a; }
+    .detail-chip .dc-down { color: #16a34a; }
+
     /* ── Not-ready banner ── */
     #not-ready-banner {
       background: #fef3c7; border: 1px solid #f59e0b;
@@ -207,7 +238,13 @@
 <body>
 
 <header>
-  <div>
+  <a href="/" title="Home" style="display:flex;align-items:center;flex-shrink:0;color:#fff;text-decoration:none;opacity:0.9;transition:opacity .15s;" onmouseover="this.style.opacity=1" onmouseout="this.style.opacity=0.9">
+    <svg xmlns="http://www.w3.org/2000/svg" width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+      <path d="M3 9.5L12 3l9 6.5V20a1 1 0 0 1-1 1H4a1 1 0 0 1-1-1V9.5z"/>
+      <path d="M9 21V12h6v9"/>
+    </svg>
+  </a>
+  <div style="margin-left:16px;">
     <h1>🇲🇾 Smart Government — Malaysian CPI &amp; Cost of Living Analyser</h1>
     <p>COS40007 Design Project 2026 · Theme 3 · DOSM Open Data</p>
   </div>
@@ -366,6 +403,24 @@
     <div class="chart-wrap">
       <button class="fullscreen-btn" onclick="toggleFullscreen(this)">⛶</button>
       <div id="chart-cluster-states" style="height:480px;"></div>
+    </div>
+    <p style="font-size:0.78rem;color:var(--muted);margin-top:8px;text-align:center;">
+      Click any state dot to see its full feature profile below.
+    </p>
+
+    <!-- State detail panel -->
+    <div id="state-detail-panel">
+      <div id="state-detail-header">
+        <div>
+          <h3 id="state-detail-name">—</h3>
+          <span id="state-detail-cluster">—</span>
+        </div>
+        <button id="state-detail-close" onclick="closeStateDetail()">✕ Close</button>
+      </div>
+      <div id="state-detail-body">
+        <div id="state-detail-chips"></div>
+        <div id="chart-state-detail-bar" style="height:300px;"></div>
+      </div>
     </div>
   </div>
 
@@ -763,19 +818,30 @@ async function loadTsMetricsTable() {
 }
 
 // ─── Clustering ───────────────────────────────────────────────────────────────
+let _clusterData = [];
+
+const FEATURE_META = [
+  { key: 'mean_cpi_index',      label: 'Mean CPI Index',         fmt: v => v.toFixed(1),  unit: '' },
+  { key: 'cpi_growth_rate',     label: 'CPI Growth Rate',        fmt: v => v.toFixed(2),  unit: '%' },
+  { key: 'cpi_volatility',      label: 'CPI Volatility (σ)',     fmt: v => v.toFixed(3),  unit: '' },
+  { key: 'income_mean_latest',  label: 'Mean Household Income',  fmt: v => 'RM ' + v.toLocaleString(), unit: '' },
+  { key: 'income_median_latest',label: 'Median Household Income',fmt: v => 'RM ' + v.toLocaleString(), unit: '' },
+];
+
 async function loadClusterChart() {
   const res = await fetch('/api/cluster/states');
   if (!res.ok) return;
-  const data = await res.json();
+  _clusterData = await res.json();
 
-  const labels = [...new Set(data.map(d => d.cluster_label))].sort();
+  const labels = [...new Set(_clusterData.map(d => d.cluster_label))].sort();
   const traces = labels.map((lbl, i) => {
-    const pts = data.filter(d => d.cluster_label === lbl);
+    const pts = _clusterData.filter(d => d.cluster_label === lbl);
     return {
       name: lbl, type: 'scatter', mode: 'markers+text',
       x: pts.map(d => d.income_mean_latest),
       y: pts.map(d => d.cpi_growth_rate),
       text: pts.map(d => d.state),
+      customdata: pts.map(d => d.state),
       textposition: 'top center',
       textfont: { size: 10 },
       marker: { size: 14, color: PALETTE[i % PALETTE.length], opacity: 0.85 },
@@ -789,6 +855,80 @@ async function loadClusterChart() {
     legend: { orientation: 'h', y: -0.22 },
     margin: { t: 48, r: 20, b: 80 },
   }, { responsive: true });
+
+  document.getElementById('chart-cluster-states').on('plotly_click', e => {
+    const stateName = e.points[0]?.customdata;
+    if (stateName) showStateDetail(stateName);
+  });
+}
+
+function showStateDetail(stateName) {
+  const row = _clusterData.find(d => d.state === stateName);
+  if (!row) return;
+
+  // Cluster peers (same cluster_label)
+  const peers = _clusterData.filter(d => d.cluster_label === row.cluster_label);
+  const natAvg = key => _clusterData.reduce((s, d) => s + d[key], 0) / _clusterData.length;
+  const clsAvg = key => peers.reduce((s, d) => s + d[key], 0) / peers.length;
+
+  // Header
+  document.getElementById('state-detail-name').textContent = stateName;
+  document.getElementById('state-detail-cluster').textContent =
+    'Cluster: ' + row.cluster_label + '  ·  ' + peers.length + ' states in this cluster';
+
+  // Chips — show value and diff vs national avg
+  document.getElementById('state-detail-chips').innerHTML = FEATURE_META.map(f => {
+    const val  = row[f.key];
+    const avg  = natAvg(f.key);
+    const diff = ((val - avg) / avg * 100);
+    const sign = diff >= 0 ? '+' : '';
+    const cls  = diff >= 0 ? 'dc-up' : 'dc-down';
+    return `
+      <div class="detail-chip">
+        <div class="dc-label">${f.label}</div>
+        <div class="dc-value">${f.fmt(val)}${f.unit}</div>
+        <div class="dc-vs ${cls}">${sign}${diff.toFixed(1)}% vs national avg</div>
+      </div>`;
+  }).join('');
+
+  // Bar chart — state vs cluster avg vs national avg
+  const featureLabels = FEATURE_META.map(f => f.label);
+
+  // Normalise each feature to % of national avg so all 5 fit one axis
+  const stateVals  = FEATURE_META.map(f => row[f.key] / natAvg(f.key) * 100);
+  const clsVals    = FEATURE_META.map(f => clsAvg(f.key) / natAvg(f.key) * 100);
+  const natVals    = FEATURE_META.map(() => 100);
+
+  Plotly.react('chart-state-detail-bar', [
+    {
+      name: stateName, type: 'bar', x: featureLabels, y: stateVals,
+      marker: { color: '#1a3c6e', opacity: 0.9 },
+    },
+    {
+      name: 'Cluster avg (' + row.cluster_label + ')', type: 'bar',
+      x: featureLabels, y: clsVals,
+      marker: { color: '#e8523a', opacity: 0.75 },
+    },
+    {
+      name: 'National avg (= 100)', type: 'scatter', mode: 'lines',
+      x: featureLabels, y: natVals,
+      line: { color: '#9ca3af', dash: 'dot', width: 2 },
+    },
+  ], {
+    title: { text: 'Feature Profile — indexed to national average (100 = national avg)', font: { size: 12 } },
+    yaxis: { title: 'Index (national avg = 100)' },
+    barmode: 'group',
+    legend: { orientation: 'h', y: -0.28 },
+    margin: { t: 40, r: 20, b: 80 },
+  }, { responsive: true });
+
+  const panel = document.getElementById('state-detail-panel');
+  panel.classList.add('visible');
+  panel.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+}
+
+function closeStateDetail() {
+  document.getElementById('state-detail-panel').classList.remove('visible');
 }
 
 async function loadClusterMetrics() {
