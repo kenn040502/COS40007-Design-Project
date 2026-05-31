@@ -16,9 +16,6 @@ outputs/figures/
 outputs/models/
 data/processed/
 
-# Raw data (re-downloaded with data/download_datasets.py)
-data/raw/
-
 # IDE
 .vscode/
 .idea/
