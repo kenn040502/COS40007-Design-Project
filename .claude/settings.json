@@ -42,7 +42,11 @@
       "Bash(Select-Object -ExpandProperty FullName)",
       "Bash(python -c \"import ast, sys; ast.parse\\(open\\('app/dashboard.py'\\).read\\(\\)\\); print\\('dashboard.py OK'\\)\")",
       "Bash(curl -L \"https://storage.dosm.gov.my/population/population_district.csv\" -o \"c:/Users/User/Documents/GitHub/COS40007-Design-Project/data/raw/population_district.csv\" --progress-bar)",
-      "Bash(python3 -c ' *)"
+      "Bash(python3 -c ' *)",
+      "Bash(git lfs *)",
+      "Bash(git add *)",
+      "Bash(git commit -m ' *)",
+      "Bash(git push *)"
     ],
     "additionalDirectories": [
       "C:\\Users\\User\\Documents\\GitHub\\COS40007-Design-Project\\outputs\\figures"
