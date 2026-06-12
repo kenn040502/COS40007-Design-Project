@@ -4,6 +4,7 @@ __pycache__/
 *.pyo
 *.pyd
 .Python
+*.egg-info/
 
 # Virtual environments
 .venv/
@@ -29,7 +30,10 @@ Thumbs.db
 # Distribution / packaging
 dist/
 build/
-*.egg-info/
 
 # Jupyter
 .ipynb_checkpoints/
+
+# Local report build artefacts (the .docx report lives outside the repo)
+~$*.docx
+*.tmp
