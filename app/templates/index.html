@@ -133,6 +133,27 @@
     .run-btn-sm:hover    { opacity: 0.88; }
     .run-btn-sm:disabled { opacity: 0.5; cursor: not-allowed; }
 
+    .unit-toggle {
+      margin-left: 10px; padding: 2px 9px; font-size: 0.72rem; font-weight: 600;
+      border: 1.5px solid var(--primary); border-radius: 20px; background: transparent;
+      color: var(--primary); cursor: pointer; vertical-align: middle; transition: all .15s;
+    }
+    .unit-toggle:hover { background: var(--primary); color: #fff; }
+
+    /* ── Cluster axis controls ── */
+    .cluster-axis-controls {
+      display: flex; gap: 20px; align-items: flex-end; flex-wrap: wrap;
+      margin-bottom: 14px; justify-content: center;
+    }
+    .axis-ctrl { display: flex; flex-direction: column; gap: 4px; min-width: 200px; }
+    .axis-ctrl label { font-size: 0.78rem; color: var(--muted); font-weight: 500; }
+    .cluster-reset-btn {
+      padding: 8px 12px; border: 1px solid var(--border); border-radius: 6px;
+      font-size: 0.9rem; background: #fff; color: var(--text); cursor: pointer;
+      text-align: left; width: 100%;
+    }
+    .cluster-reset-btn:hover { border-color: var(--primary); color: var(--primary); }
+
     /* ── Progress bar ── */
     #ts-progress-wrap {
       margin-bottom: 14px; overflow: hidden;
@@ -349,12 +370,15 @@
 
     <div class="ts-controls">
       <div class="ts-ctrl-group">
-        <label>Forecast horizon — <span id="ts-horizon-val">24 months</span></label>
+        <label>
+          Forecast horizon — <span id="ts-horizon-val">48 months</span>
+          <button class="unit-toggle" id="ts-unit-toggle" onclick="toggleTsUnit()">switch to years</button>
+        </label>
         <div class="range-row">
-          <span>1 m</span>
-          <input type="range" id="ts-horizon-slider" min="1" max="48" value="24"
-                 oninput="document.getElementById('ts-horizon-val').textContent=this.value+' months'" />
-          <span>48 m</span>
+          <span id="ts-range-min">1 m</span>
+          <input type="range" id="ts-horizon-slider" min="1" max="48" value="48"
+                 oninput="updateHorizonLabel()" />
+          <span id="ts-range-max">48 m</span>
         </div>
       </div>
       <button class="run-btn-sm" id="ts-run-btn" onclick="loadForecastLive()">↺ Run Forecast</button>
@@ -400,6 +424,32 @@
       latest mean household income, and latest median household income. Optimal k selected via
       Silhouette score. Each point is labelled with the state name.
     </p>
+    <div class="cluster-axis-controls">
+      <div class="axis-ctrl">
+        <label for="cluster-x-axis">X Axis</label>
+        <select id="cluster-x-axis" onchange="redrawClusterChart()">
+          <option value="income_mean_latest" selected>Mean Household Income</option>
+          <option value="income_median_latest">Median Household Income</option>
+          <option value="mean_cpi_index">Mean CPI Index</option>
+          <option value="cpi_growth_rate">CPI Growth Rate</option>
+          <option value="cpi_volatility">CPI Volatility</option>
+        </select>
+      </div>
+      <div class="axis-ctrl">
+        <label for="cluster-y-axis">Y Axis</label>
+        <select id="cluster-y-axis" onchange="redrawClusterChart()">
+          <option value="cpi_growth_rate" selected>CPI Growth Rate</option>
+          <option value="cpi_volatility">CPI Volatility</option>
+          <option value="mean_cpi_index">Mean CPI Index</option>
+          <option value="income_mean_latest">Mean Household Income</option>
+          <option value="income_median_latest">Median Household Income</option>
+        </select>
+      </div>
+      <div class="axis-ctrl">
+        <label>&nbsp;</label>
+        <button class="cluster-reset-btn" onclick="resetClusterAxes()">↺ Reset</button>
+      </div>
+    </div>
     <div class="chart-wrap">
       <button class="fullscreen-btn" onclick="toggleFullscreen(this)">⛶</button>
       <div id="chart-cluster-states" style="height:480px;"></div>
@@ -539,7 +589,18 @@ function showTab(id, btn) {
   document.querySelectorAll('nav button').forEach(b => b.classList.remove('active'));
   document.getElementById('tab-' + id).classList.add('active');
   btn.classList.add('active');
+  location.hash = id;
 }
+
+// Restore tab from URL hash on load
+(function () {
+  const validTabs = ['overview', 'timeseries', 'clustering', 'fuel'];
+  const hash = location.hash.replace('#', '');
+  if (validTabs.includes(hash)) {
+    const btn = document.querySelector(`nav button[onclick*="'${hash}'"]`);
+    if (btn) showTab(hash, btn);
+  }
+})();
 
 // ─── Overview: national inflation ────────────────────────────────────────────
 async function loadNationalInflation() {
@@ -748,8 +809,46 @@ function updateForecastMetrics(d) {
   `;
 }
 
+// ─── Horizon unit toggle (months ↔ years) ─────────────────────────────────────
+let _tsUnit = 'months';
+
+function updateHorizonLabel() {
+  const raw = parseInt(document.getElementById('ts-horizon-slider').value);
+  const lbl = document.getElementById('ts-horizon-val');
+  lbl.textContent = _tsUnit === 'years'
+    ? raw + ' year' + (raw === 1 ? '' : 's')
+    : raw + ' month' + (raw === 1 ? '' : 's');
+}
+
+function toggleTsUnit() {
+  const slider = document.getElementById('ts-horizon-slider');
+  const btn    = document.getElementById('ts-unit-toggle');
+  const raw    = parseInt(slider.value);
+  if (_tsUnit === 'months') {
+    _tsUnit = 'years';
+    slider.min = 1; slider.max = 4;
+    slider.value = Math.max(1, Math.min(4, Math.round(raw / 12)));
+    document.getElementById('ts-range-min').textContent = '1 yr';
+    document.getElementById('ts-range-max').textContent = '4 yrs';
+    btn.textContent = 'switch to months';
+  } else {
+    _tsUnit = 'months';
+    slider.min = 1; slider.max = 48;
+    slider.value = Math.min(48, raw * 12);
+    document.getElementById('ts-range-min').textContent = '1 m';
+    document.getElementById('ts-range-max').textContent = '48 m';
+    btn.textContent = 'switch to years';
+  }
+  updateHorizonLabel();
+}
+
+function getHorizonMonths() {
+  const raw = parseInt(document.getElementById('ts-horizon-slider').value);
+  return _tsUnit === 'years' ? raw * 12 : raw;
+}
+
 async function loadForecastLive() {
-  const horizon = document.getElementById('ts-horizon-slider').value;
+  const horizon = getHorizonMonths();
   const btn = document.getElementById('ts-run-btn');
 
   if (_liveController) _liveController.abort();
@@ -828,18 +927,22 @@ const FEATURE_META = [
   { key: 'income_median_latest',label: 'Median Household Income',fmt: v => 'RM ' + v.toLocaleString(), unit: '' },
 ];
 
-async function loadClusterChart() {
-  const res = await fetch('/api/cluster/states');
-  if (!res.ok) return;
-  _clusterData = await res.json();
+const AXIS_LABELS = {
+  income_mean_latest:   'Mean Household Income (RM)',
+  income_median_latest: 'Median Household Income (RM)',
+  mean_cpi_index:       'Mean CPI Index',
+  cpi_growth_rate:      'CPI Growth Rate (%)',
+  cpi_volatility:       'CPI Volatility (σ)',
+};
 
+function buildClusterTraces(xKey, yKey) {
   const labels = [...new Set(_clusterData.map(d => d.cluster_label))].sort();
-  const traces = labels.map((lbl, i) => {
+  return labels.map((lbl, i) => {
     const pts = _clusterData.filter(d => d.cluster_label === lbl);
     return {
       name: lbl, type: 'scatter', mode: 'markers+text',
-      x: pts.map(d => d.income_mean_latest),
-      y: pts.map(d => d.cpi_growth_rate),
+      x: pts.map(d => d[xKey]),
+      y: pts.map(d => d[yKey]),
       text: pts.map(d => d.state),
       customdata: pts.map(d => d.state),
       textposition: 'top center',
@@ -847,14 +950,33 @@ async function loadClusterChart() {
       marker: { size: 14, color: PALETTE[i % PALETTE.length], opacity: 0.85 },
     };
   });
+}
 
-  Plotly.newPlot('chart-cluster-states', traces, {
-    title: { text: 'State Clusters: Household Income vs CPI Growth Rate', font: { size: 13 } },
-    xaxis: { title: 'Latest Mean Household Income (RM)' },
-    yaxis: { title: 'CPI Growth Rate (%)' },
+function resetClusterAxes() {
+  document.getElementById('cluster-x-axis').value = 'income_mean_latest';
+  document.getElementById('cluster-y-axis').value = 'cpi_growth_rate';
+  redrawClusterChart();
+}
+
+function redrawClusterChart() {
+  if (!_clusterData.length) return;
+  const xKey = document.getElementById('cluster-x-axis').value;
+  const yKey = document.getElementById('cluster-y-axis').value;
+  Plotly.react('chart-cluster-states', buildClusterTraces(xKey, yKey), {
+    title: { text: `State Clusters: ${AXIS_LABELS[xKey]} vs ${AXIS_LABELS[yKey]}`, font: { size: 13 } },
+    xaxis: { title: AXIS_LABELS[xKey] },
+    yaxis: { title: AXIS_LABELS[yKey] },
     legend: { orientation: 'h', y: -0.22 },
     margin: { t: 48, r: 20, b: 80 },
   }, { responsive: true });
+}
+
+async function loadClusterChart() {
+  const res = await fetch('/api/cluster/states');
+  if (!res.ok) return;
+  _clusterData = await res.json();
+
+  redrawClusterChart();
 
   document.getElementById('chart-cluster-states').on('plotly_click', e => {
     const stateName = e.points[0]?.customdata;

@@ -211,22 +211,18 @@ h1("Introduction")
 
 h2("Background and Motivation")
 para(
-    "Income levels and consumer price inflation are two of the most closely watched indicators "
-    "of economic wellbeing in Malaysia. The Department of Statistics Malaysia (DOSM) publishes "
-    "monthly CPI data at both national and state level, alongside periodic household income "
-    "surveys, giving researchers a rich longitudinal and cross-sectional picture of the economy. "
-    "Yet aggregate national averages can conceal important regional variation: states differ "
-    "substantially in both their income levels and their exposure to inflationary pressure, and "
-    "understanding these differences matters for designing targeted subsidies, social-protection "
-    "schemes, and monetary policy."
+    "Malaysia's Consumer Price Index (CPI) and household income data, published monthly by the "
+    "Department of Statistics Malaysia (DOSM), provide a detailed picture of inflationary "
+    "pressures and living standards across the country's 16 states and federal territories. "
+    "Understanding how inflation evolves, and whether its impact is uniform across states, is "
+    "directly relevant to monetary policy, subsidy design, and regional development planning."
 )
 para(
-    "Under the COS40007 Smart Government theme, this project applies two complementary AI methods "
-    "to open DOSM data: ARIMA time-series forecasting to predict how national CPI inflation will "
-    "evolve over the next 24 months, and unsupervised clustering to group Malaysia's 16 states "
-    "into interpretable economic tiers based on their CPI and household-income profiles. The "
-    "analysis is wrapped in a reproducible Python pipeline and an interactive Flask dashboard so "
-    "that the findings are accessible to non-technical policymakers."
+    "Under the COS40007 Smart Government theme, this project applies machine-learning techniques "
+    "to open DOSM data to answer two questions: whether ARIMA can reliably forecast national CPI "
+    "inflation several months ahead, and whether Malaysian states form interpretable economic "
+    "clusters based on their CPI and income profiles. A reproducible Python pipeline and an "
+    "interactive web dashboard make the findings accessible to non-technical policymakers."
 )
 
 h2("Project Objectives")
