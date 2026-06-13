@@ -1,59 +1,85 @@
-"""Compute exact statistics used in the report from regenerated processed data."""
-import os, json
+"""Compute exact statistics used in the report from regenerated processed data.
+Run AFTER run_analysis.py has populated data/processed/ and outputs/models/.
+"""
+import os
+import json
 import pandas as pd
 
 PROC = os.path.join(os.path.dirname(__file__), "data", "processed")
 MODELS = os.path.join(os.path.dirname(__file__), "outputs", "models")
 
-km = pd.read_csv(os.path.join(PROC, "districts_kmeans_clustered.csv"))
-pov = pd.read_csv(os.path.join(PROC, "poverty_district_wide.csv"))
-gini_annual = pd.read_csv(os.path.join(PROC, "gini_state_annual.csv"))
-gini_clean = pd.read_csv(os.path.join(PROC, "gini_state_clean.csv"))
-hies_d = pd.read_csv(os.path.join(PROC, "hies_district_clean.csv"))
+
+def load(filename, **kwargs):
+    return pd.read_csv(os.path.join(PROC, filename), **kwargs)
+
+
+km = load("states_kmeans_clustered.csv")
+hc = load("states_hierarchical_clustered.csv")
+state_features = load("state_features.csv")
+income = load("income_state_clean.csv", parse_dates=["date"])
+overall_inf = load("overall_inflation.csv", parse_dates=["date"])
+cpi_state = load("cpi_state_clean.csv", parse_dates=["date"])
 
 print("===== CLUSTER PROFILE (K-Means) =====")
 prof = km.groupby("cluster_label").agg(
-    districts=("district", "count"),
-    income_mean=("income_mean", "mean"),
-    income_median=("income_median", "mean"),
-    expenditure_mean=("expenditure_mean", "mean"),
-    gini=("gini", "mean"),
-    poverty=("poverty", "mean"),
+    states=("state", "count"),
+    mean_cpi_index=("mean_cpi_index", "mean"),
+    cpi_growth_rate=("cpi_growth_rate", "mean"),
+    cpi_volatility=("cpi_volatility", "mean"),
+    income_mean=("income_mean_latest", "mean"),
+    income_median=("income_median_latest", "mean"),
 ).round(2)
-prof["pct"] = (prof["districts"] / prof["districts"].sum() * 100).round(1)
+prof["pct"] = (prof["states"] / prof["states"].sum() * 100).round(1)
 print(prof.to_string())
 
-print("\n===== CLUSTER MEMBERSHIP BY STATE (low-income cluster) =====")
-low_label = prof["income_mean"].idxmin()
-print("Low-income cluster label:", low_label)
-low = km[km["cluster_label"] == low_label]
-print(low["state"].value_counts().to_string())
+print("\n===== STATE CLUSTER MEMBERSHIP =====")
+print(km[["state", "cluster_label"]].sort_values("cluster_label").to_string(index=False))
 
-print("\n===== POVERTY CHANGE 2019->2022: TOP 5 INCREASES =====")
-inc = pov.sort_values("poverty_abs_change", ascending=False).head(5)
-print(inc[["state","district","poverty_abs_2019","poverty_abs_2022","poverty_abs_change"]].to_string(index=False))
-print("\n===== TOP 5 DECREASES =====")
-dec = pov.sort_values("poverty_abs_change").head(5)
-print(dec[["state","district","poverty_abs_2019","poverty_abs_2022","poverty_abs_change"]].to_string(index=False))
+print("\n===== INCOME EXTREMES BY STATE (latest survey) =====")
+latest = income.sort_values("date").groupby("state").last().reset_index()
+print("Highest mean income:")
+print(latest.nlargest(5, "income_mean")[["state", "income_mean", "income_median"]].to_string(index=False))
+print("Lowest mean income:")
+print(latest.nsmallest(5, "income_mean")[["state", "income_mean", "income_median"]].to_string(index=False))
 
-print("\n===== NATIONAL GINI (unweighted mean of states) =====")
-nat = gini_clean.groupby("year")["gini"].mean()
-for y in [1974, 1976, 1989, 1997, 2009, 2016, 2019, 2022]:
-    if y in nat.index:
-        print(f"  {y}: {nat.loc[y]:.4f}")
-print(f"  earliest {nat.index.min()}: {nat.iloc[0]:.4f}, latest {nat.index.max()}: {nat.iloc[-1]:.4f}")
+print("\n===== OVERALL CPI INFLATION (national) =====")
+recent = overall_inf.sort_values("date").tail(12)
+print(f"  Latest date : {overall_inf['date'].max().strftime('%Y-%m')}")
+print(f"  Latest YoY  : {overall_inf.sort_values('date')['inflation_yoy'].iloc[-1]:.2f}%")
+print(f"  Max YoY     : {overall_inf['inflation_yoy'].max():.2f}%  ({overall_inf.loc[overall_inf['inflation_yoy'].idxmax(), 'date'].strftime('%Y-%m')})")
+print(f"  Min YoY     : {overall_inf['inflation_yoy'].min():.2f}%  ({overall_inf.loc[overall_inf['inflation_yoy'].idxmin(), 'date'].strftime('%Y-%m')})")
 
-print("\n===== ARIMA forecast 2030 national mean (state-mean of forecasts) =====")
+print("\n===== ARIMA RESULTS =====")
 with open(os.path.join(MODELS, "arima_results.json")) as f:
     ar = json.load(f)
-f2030 = [r["forecast_gini"][-1] for r in ar.values() if "error" not in r]
-print(f"  mean forecast 2030 = {sum(f2030)/len(f2030):.4f}  across {len(f2030)} states")
+print(f"  ARIMA order : {ar['arima_order']}")
+print(f"  AIC         : {ar.get('aic', 'n/a')}")
+print(f"  BIC         : {ar.get('bic', 'n/a')}")
+m = ar["metrics"]
+print(f"  Test MAE    : {m['MAE']:.4f}")
+print(f"  Test RMSE   : {m['RMSE']:.4f}")
+print(f"  Test MAPE   : {m['MAPE']:.2f}%")
+fc = ar["forecast"]["values"]
+print(f"  Forecast horizon : {ar['horizon']} months")
+print(f"  Forecast range   : {min(fc):.2f}% – {max(fc):.2f}%")
 
-print("\n===== HIES district extremes =====")
-print("Lowest mean income district:", hies_d.loc[hies_d['income_mean'].idxmin(), ['state','district','income_mean','poverty']].to_dict())
-print("Highest poverty district:", hies_d.loc[hies_d['poverty'].idxmax(), ['state','district','income_mean','poverty']].to_dict())
-print("N districts:", len(hies_d), "| N states covered:", hies_d['state'].nunique())
-print("Mean district income (all):", round(hies_d['income_mean'].mean(),0), "| Median poverty:", round(hies_d['poverty'].median(),2))
+print("\n===== CLUSTERING VALIDITY SCORES =====")
+with open(os.path.join(MODELS, "clustering_results.json")) as f:
+    cr = json.load(f)
+print(f"  Best k (silhouette) : {cr['best_k']}")
+for method in ("kmeans", "hierarchical"):
+    s = cr[method]["scores"]
+    print(f"  {method:15s}: silhouette={s['silhouette']}  "
+          f"davies_bouldin={s['davies_bouldin']}  "
+          f"calinski_harabasz={s['calinski_harabasz']}")
 
-print("\n===== PCA variance =====")
-print(open(os.path.join(MODELS, "clustering_results.json")).read()[:50], "...(see json)")
+print("\n===== STATE CPI GROWTH RATES =====")
+overall = cpi_state[cpi_state["division"] == "overall"].copy()
+growth = (
+    overall.sort_values("date")
+    .groupby("state")
+    .apply(lambda g: round((g["index"].iloc[-1] - g["index"].iloc[0]) / g["index"].iloc[0] * 100, 2))
+    .reset_index()
+)
+growth.columns = ["state", "cpi_growth_pct"]
+print(growth.sort_values("cpi_growth_pct", ascending=False).to_string(index=False))
