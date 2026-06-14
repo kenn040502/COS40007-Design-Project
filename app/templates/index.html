@@ -292,7 +292,7 @@
   <div id="pipeline-box">
     <h3>Running Analysis Pipeline</h3>
     <div id="pipeline-log"></div>
-    <div id="pipeline-status">Starting…</div>
+    <div id="pipeline-status">Starting… <span id="pipeline-elapsed" style="color:var(--muted);font-size:0.82em;margin-left:6px;"></span></div>
     <button id="pipeline-cancel" onclick="cancelPipeline()">Cancel run</button>
     <button id="pipeline-close" onclick="closeRunModal()" disabled>Close</button>
   </div>
@@ -1568,13 +1568,31 @@ async function loadFuelExog() {
 }
 
 // ─── Pipeline modal ───────────────────────────────────────────────────────────
+let _pipelineTimer = null;
+let _pipelineStart = null;
+
+function _startPipelineTimer() {
+  _pipelineStart = Date.now();
+  document.getElementById('pipeline-elapsed').textContent = '0s';
+  _pipelineTimer = setInterval(() => {
+    const s = Math.floor((Date.now() - _pipelineStart) / 1000);
+    document.getElementById('pipeline-elapsed').textContent = s + 's';
+  }, 1000);
+}
+
+function _stopPipelineTimer() {
+  if (_pipelineTimer) { clearInterval(_pipelineTimer); _pipelineTimer = null; }
+}
+
 function openRunModal() {
   document.getElementById('pipeline-modal').classList.add('open');
   document.getElementById('pipeline-log').innerHTML = '';
-  document.getElementById('pipeline-status').textContent = 'Starting…';
+  document.getElementById('pipeline-status').firstChild.textContent = 'Starting… ';
+  document.getElementById('pipeline-elapsed').textContent = '';
   document.getElementById('pipeline-close').disabled = true;
   document.getElementById('pipeline-cancel').disabled = false;
   document.getElementById('run-btn').disabled = true;
+  _startPipelineTimer();
 
   const log = document.getElementById('pipeline-log');
   function append(text, cls) {
@@ -1607,10 +1625,13 @@ function openRunModal() {
           if (part.startsWith('event: done')) {
             const code = part.split('data: ')[1]?.trim();
             const ok   = code === '0';
-            document.getElementById('pipeline-status').textContent =
-              ok ? '✅ Pipeline complete — reloading…' : '❌ Pipeline failed (see log above)';
+            const elapsed = _pipelineStart ? Math.floor((Date.now() - _pipelineStart) / 1000) + 's' : '';
+            _stopPipelineTimer();
+            document.getElementById('pipeline-elapsed').textContent = elapsed ? '(' + elapsed + ')' : '';
+            document.getElementById('pipeline-status').firstChild.textContent =
+              ok ? '✅ Pipeline complete — reloading… ' : '❌ Pipeline failed (see log above) ';
             document.getElementById('pipeline-close').disabled = false;
-      document.getElementById('pipeline-cancel').disabled = true;
+            document.getElementById('pipeline-cancel').disabled = true;
             document.getElementById('run-btn').disabled = false;
             if (ok) setTimeout(() => location.reload(), 1500);
           } else if (part.startsWith('data: ')) {
@@ -1626,6 +1647,8 @@ function openRunModal() {
     }
     read();
   }).catch(err => {
+    _stopPipelineTimer();
+    document.getElementById('pipeline-elapsed').textContent = '';
     append('ERROR: ' + err, 'err');
     document.getElementById('pipeline-close').disabled = false;
     document.getElementById('run-btn').disabled = false;
@@ -1634,7 +1657,9 @@ function openRunModal() {
 
 function cancelPipeline() {
   document.getElementById('pipeline-cancel').disabled = true;
-  document.getElementById('pipeline-status').textContent = 'Cancelling…';
+  _stopPipelineTimer();
+  document.getElementById('pipeline-elapsed').textContent = '';
+  document.getElementById('pipeline-status').firstChild.textContent = 'Cancelling… ';
   fetch('/api/run/cancel', { method: 'POST' }).catch(() => {});
 }
 
