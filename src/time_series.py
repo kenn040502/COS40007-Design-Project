@@ -515,25 +515,63 @@ def run_all(inflation_df: pd.DataFrame = None, fuelprice_df: pd.DataFrame = None
         order = select_order(train)
     print(f"  BIC-selected order: ARIMA{order}")
 
-    fitted = fit_arima(train, order)
-    test_pred, _, _ = _extract_forecast(fitted.get_forecast(steps=len(test)))
-    metrics = evaluate_forecast(test, test_pred, train=train)
+    # If order and series length match the cache, skip both expensive fits.
+    _pkl_path = os.path.join(MODELS_DIR, "arima_fitted.pkl")
+    _cache_ok = (
+        order is not None
+        and os.path.exists(cached_path)
+        and os.path.exists(_pkl_path)
+    )
+    if _cache_ok:
+        try:
+            _c = _cached  # already loaded above
+            _cache_ok = (
+                tuple(_c.get("arima_order", [])) == order
+                and _c.get("series_length") == len(series)
+                and "train" in _c and "test" in _c and "metrics" in _c
+            )
+        except Exception:
+            _cache_ok = False
 
-    # Naive random-walk baseline on the same test set — gives ARIMA something
-    # to beat. MASE already encodes this, but an explicit baseline is clearer.
-    baseline_pred = naive_forecast(train, len(test))
-    baseline_metrics = evaluate_forecast(test, baseline_pred, train=train)
-    print(f"  Test metrics: MAE={metrics['MAE']} RMSE={metrics['RMSE']} "
-          f"sMAPE={metrics['sMAPE']}% MASE={metrics.get('MASE')}")
-    print(f"  Naive baseline: RMSE={baseline_metrics['RMSE']} "
-          f"(ARIMA MASE<1 means it beats this baseline)")
+    if _cache_ok:
+        print(f"  Reusing pre-computed train/test results (series unchanged)…")
+        metrics          = {k: float(v) for k, v in _cached["metrics"].items()}
+        baseline_metrics = {k: float(v) for k, v in _cached["baseline"]["metrics"].items()}
+        stationarity     = _cached["stationarity"]
+        train_result     = _cached["train"]
+        test_result      = _cached["test"]
+        print(f"  Test metrics: MAE={metrics['MAE']} RMSE={metrics['RMSE']} "
+              f"sMAPE={metrics['sMAPE']}% MASE={metrics.get('MASE')}")
+        print(f"  Loading pre-fitted ARIMA model…")
+        from statsmodels.tsa.arima.model import ARIMAResults
+        final_model = ARIMAResults.load(_pkl_path)
+    else:
+        print(f"  Fitting ARIMA{order} on training data ({len(train)} months)…")
+        fitted = fit_arima(train, order)
+        test_pred, _, _ = _extract_forecast(fitted.get_forecast(steps=len(test)))
+        metrics = evaluate_forecast(test, test_pred, train=train)
+        baseline_pred = naive_forecast(train, len(test))
+        baseline_metrics = evaluate_forecast(test, baseline_pred, train=train)
+        print(f"  Test metrics: MAE={metrics['MAE']} RMSE={metrics['RMSE']} "
+              f"sMAPE={metrics['sMAPE']}% MASE={metrics.get('MASE')}")
+        print(f"  Naive baseline: RMSE={baseline_metrics['RMSE']} "
+              f"(ARIMA MASE<1 means it beats this baseline)")
+        train_result = {
+            "dates":  [str(d.date()) for d in train.index],
+            "values": [float(v) for v in train.values],
+        }
+        test_result = {
+            "dates":     [str(d.date()) for d in test.index],
+            "actual":    [float(v) for v in test.values],
+            "predicted": [float(v) for v in test_pred],
+        }
+        print(f"  Fitting ARIMA{order} on full series ({len(series)} months)…")
+        final_model = fit_arima(series, order)
+        try:
+            final_model.save(_pkl_path)
+        except Exception:
+            pass
 
-    final_model = fit_arima(series, order)
-    # Save the fitted model so run_live can skip the expensive refit.
-    try:
-        final_model.save(os.path.join(MODELS_DIR, "arima_fitted.pkl"))
-    except Exception:
-        pass
     future_pred, future_lower, future_upper = _extract_forecast(
         final_model.get_forecast(steps=FORECAST_HORIZON)
     )
@@ -541,15 +579,8 @@ def run_all(inflation_df: pd.DataFrame = None, fuelprice_df: pd.DataFrame = None
     future_dates = pd.date_range(last_date, periods=FORECAST_HORIZON + 1, freq="MS")[1:]
 
     result = {
-        "train": {
-            "dates":  [str(d.date()) for d in train.index],
-            "values": [float(v) for v in train.values],
-        },
-        "test": {
-            "dates":     [str(d.date()) for d in test.index],
-            "actual":    [float(v) for v in test.values],
-            "predicted": [float(v) for v in test_pred],
-        },
+        "train": train_result,
+        "test":  test_result,
         "forecast": {
             "dates":  [str(d.date()) for d in future_dates],
             "values": [float(v) for v in future_pred],
