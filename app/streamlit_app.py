@@ -595,9 +595,10 @@ def _run_pipeline() -> None:
                 escaped = _html.escape("\n".join(lines[-25:]))
                 log_slot.markdown(
                     f'<div style="background:#0f172a;color:#94a3b8;'
-                    f'font-family:monospace;font-size:0.78rem;'
-                    f'height:240px;overflow-y:auto;border-radius:8px;'
-                    f'padding:12px 14px;white-space:pre-wrap;'
+                    f'font-family:monospace;font-size:0.82rem;line-height:1.55;'
+                    f'height:260px;overflow-y:auto;overflow-x:hidden;'
+                    f'border-radius:8px;padding:14px 16px;'
+                    f'white-space:pre-wrap;word-break:break-word;'
                     f'box-shadow:inset 0 2px 6px rgba(0,0,0,0.3);">'
                     f'{escaped}</div>',
                     unsafe_allow_html=True,
@@ -648,8 +649,11 @@ with col_status:
     else:
         st.success("Pipeline outputs ready", icon="✅")
 with col_btn:
-    if st.button("▶  Run Analysis Pipeline", type="primary", use_container_width=True):
-        _run_pipeline()
+    _do_run = st.button("▶  Run Analysis Pipeline", type="primary", use_container_width=True)
+
+# Call outside column so the log panel spans full page width
+if _do_run:
+    _run_pipeline()
 
 if not ready:
     st.stop()
