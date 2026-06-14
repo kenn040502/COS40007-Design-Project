@@ -5,6 +5,7 @@ Tabs: Overview | Time Series Forecast | State Clustering | Fuel Analysis
 import os
 import sys
 import json
+import html as _html
 import urllib.request
 import subprocess
 
@@ -578,22 +579,37 @@ def _make_choropleth_cluster(geojson: dict, df: pd.DataFrame) -> go.Figure:
 # ─── Pipeline runner ─────────────────────────────────────────────────────────
 def _run_pipeline() -> None:
     script = os.path.join(ROOT_DIR, "run_pipeline.py")
-    log_box = st.empty()
     lines: list[str] = []
-    with st.status("Running Analysis Pipeline…", expanded=True) as status:
-        proc = subprocess.Popen(
-            [sys.executable, "-u", script, "--no-dashboard"],
-            stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
-            text=True, cwd=ROOT_DIR,
-        )
-        for raw in proc.stdout:
-            lines.append(raw.rstrip())
-            log_box.code("\n".join(lines[-40:]))
-        proc.wait()
-        if proc.returncode == 0:
-            status.update(label="Pipeline complete!", state="complete")
-        else:
-            status.update(label=f"Pipeline failed (exit code {proc.returncode})", state="error")
+
+    _, mid, _ = st.columns([1, 4, 1])
+    with mid:
+        with st.status("Running Analysis Pipeline…", expanded=True) as status:
+            log_slot = st.empty()
+            proc = subprocess.Popen(
+                [sys.executable, "-u", script, "--no-dashboard"],
+                stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
+                text=True, cwd=ROOT_DIR,
+            )
+            for raw in proc.stdout:
+                lines.append(raw.rstrip())
+                escaped = _html.escape("\n".join(lines[-25:]))
+                log_slot.markdown(
+                    f'<div style="background:#0f172a;color:#94a3b8;'
+                    f'font-family:monospace;font-size:0.78rem;'
+                    f'height:240px;overflow-y:auto;border-radius:8px;'
+                    f'padding:12px 14px;white-space:pre-wrap;'
+                    f'box-shadow:inset 0 2px 6px rgba(0,0,0,0.3);">'
+                    f'{escaped}</div>',
+                    unsafe_allow_html=True,
+                )
+            proc.wait()
+            if proc.returncode == 0:
+                status.update(label="✅ Pipeline complete!", state="complete")
+            else:
+                status.update(
+                    label=f"❌ Pipeline failed (exit code {proc.returncode})",
+                    state="error",
+                )
     st.cache_data.clear()
     st.rerun()
 
