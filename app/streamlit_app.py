@@ -272,6 +272,34 @@ def _add_coords(df: pd.DataFrame) -> pd.DataFrame:
     return df.dropna(subset=["lat", "lon"])
 
 
+_TEXT   = "#1e2330"
+_MUTED  = "#6b7280"
+_GRID   = "#e5e7eb"
+_ZEROLINE = "#d1d5db"
+_FONT_FAMILY = "'Segoe UI', system-ui, sans-serif"
+
+_AXIS_STYLE = dict(
+    title_font=dict(color=_TEXT, size=12, family=_FONT_FAMILY),
+    tickfont=dict(color=_TEXT, size=11, family=_FONT_FAMILY),
+    gridcolor=_GRID,
+    zerolinecolor=_ZEROLINE,
+    linecolor=_ZEROLINE,
+)
+
+
+def _style(fig: go.Figure) -> go.Figure:
+    """Apply consistent font/colour to match the HTML design."""
+    fig.update_layout(
+        font=dict(family=_FONT_FAMILY, color=_TEXT, size=12),
+        plot_bgcolor="#ffffff",
+        paper_bgcolor="#ffffff",
+        legend=dict(font=dict(color=_TEXT, size=11, family=_FONT_FAMILY)),
+    )
+    fig.update_xaxes(**_AXIS_STYLE)
+    fig.update_yaxes(**_AXIS_STYLE)
+    return fig
+
+
 def _geo_layout(fig: go.Figure, title: str, height: int = 420) -> go.Figure:
     fig.update_geos(
         scope="asia",
@@ -282,9 +310,12 @@ def _geo_layout(fig: go.Figure, title: str, height: int = 420) -> go.Figure:
         showcoastlines=True, coastlinecolor="DarkGray",
     )
     fig.update_layout(
-        title=title, height=height,
+        title=dict(text=title, font=dict(color=_TEXT, size=13, family=_FONT_FAMILY)),
+        height=height,
         margin=dict(l=0, r=0, t=40, b=0),
-        legend=dict(font_size=11),
+        font=dict(family=_FONT_FAMILY, color=_TEXT, size=12),
+        legend=dict(font=dict(size=11, color=_TEXT, family=_FONT_FAMILY)),
+        paper_bgcolor="#ffffff",
     )
     return fig
 
@@ -457,9 +488,9 @@ with tab1:
     fig_trend.update_layout(
         xaxis_title="Date", yaxis_title=y_lbl,
         height=360, margin=dict(l=0, r=0, t=10, b=0),
-        showlegend=False, plot_bgcolor="#ffffff", paper_bgcolor="#ffffff",
-        hovermode="x unified",
+        showlegend=False, hovermode="x unified",
     )
+    _style(fig_trend)
     st.plotly_chart(fig_trend, use_container_width=True)
 
     # ── Division inflation trends ────────────────────────────────────────────
@@ -497,10 +528,10 @@ with tab1:
     fig_div.update_layout(
         xaxis_title="Date", yaxis_title="YoY Inflation (%)",
         height=460, margin=dict(l=0, r=0, t=10, b=0),
-        plot_bgcolor="#ffffff", paper_bgcolor="#ffffff",
         legend=dict(font_size=10, x=1.01, y=1),
         hovermode="x unified",
     )
+    _style(fig_div)
     st.plotly_chart(fig_div, use_container_width=True)
 
     # ── State CPI comparison ─────────────────────────────────────────────────
@@ -537,9 +568,9 @@ with tab1:
         fig_st.update_layout(
             xaxis_title="Date", yaxis_title="CPI Index (Base 2010 = 100)",
             height=380, margin=dict(l=0, r=0, t=10, b=0),
-            plot_bgcolor="#ffffff", paper_bgcolor="#ffffff",
             hovermode="x unified",
         )
+        _style(fig_st)
         st.plotly_chart(fig_st, use_container_width=True)
 
     # ── State CPI map ────────────────────────────────────────────────────────
@@ -572,8 +603,11 @@ with tab1:
             labels={"index": "CPI Index"},
         )
         _geo_layout(fig_cpi_map, "Latest Overall CPI Index by State")
-        fig_cpi_map.update_layout(paper_bgcolor="#ffffff")
-        fig_cpi_map.update_coloraxes(colorbar_title="CPI Index")
+        fig_cpi_map.update_coloraxes(
+            colorbar_title="CPI Index",
+            colorbar_tickfont=dict(color=_TEXT, family=_FONT_FAMILY),
+            colorbar_title_font=dict(color=_TEXT, family=_FONT_FAMILY),
+        )
         st.plotly_chart(fig_cpi_map, use_container_width=True)
         st.caption(
             f"Reference month: {latest_cpi['date'].max().strftime('%B %Y')}  ·  "
@@ -659,13 +693,14 @@ with tab2:
         annotation_font_size=10,
     )
     fig_fc.update_layout(
-        title=f"National CPI Inflation Forecast — ARIMA({order[0]},{order[1]},{order[2]})",
+        title=dict(text=f"National CPI Inflation Forecast — ARIMA({order[0]},{order[1]},{order[2]})",
+                   font=dict(color=_TEXT, size=13, family=_FONT_FAMILY)),
         xaxis_title="Date", yaxis_title="CPI Inflation YoY (%)",
         height=480, margin=dict(l=0, r=0, t=40, b=0),
-        plot_bgcolor="#ffffff", paper_bgcolor="#ffffff",
         hovermode="x unified",
         legend=dict(orientation="h", y=-0.22),
     )
+    _style(fig_fc)
     st.plotly_chart(fig_fc, use_container_width=True)
 
     # ── Evaluation metrics table ─────────────────────────────────────────────
@@ -741,11 +776,12 @@ with tab2:
             ))
             fig_live.add_hline(y=0, line_dash="dot", line_color="#9ca3af", line_width=0.8)
             fig_live.update_layout(
-                title=f"Live ARIMA — {horizon}-Month Forecast",
+                title=dict(text=f"Live ARIMA — {horizon}-Month Forecast",
+                           font=dict(color=_TEXT, size=13, family=_FONT_FAMILY)),
                 xaxis_title="Date", yaxis_title="Inflation YoY (%)",
                 height=380, margin=dict(l=0, r=0, t=40, b=0),
-                plot_bgcolor="#ffffff", paper_bgcolor="#ffffff",
             )
+            _style(fig_live)
             st.plotly_chart(fig_live, use_container_width=True)
 
 
@@ -796,7 +832,6 @@ with tab3:
                 color_discrete_sequence=_PALETTE,
             )
             _geo_layout(fig_map, f"{method} Cluster Map — Malaysian States")
-            fig_map.update_layout(paper_bgcolor="#ffffff")
             st.plotly_chart(fig_map, use_container_width=True)
 
     # ── Elbow + PCA figures ──────────────────────────────────────────────────
@@ -899,9 +934,9 @@ with tab4:
     fig_fuel.update_layout(
         xaxis_title="Date", yaxis_title="Price (RM / litre)",
         height=380, margin=dict(l=0, r=0, t=10, b=0),
-        plot_bgcolor="#ffffff", paper_bgcolor="#ffffff",
         hovermode="x unified", legend=dict(orientation="h", y=-0.22),
     )
+    _style(fig_fuel)
     st.plotly_chart(fig_fuel, use_container_width=True)
 
     # ── Fuel-inflation correlation ────────────────────────────────────────────
@@ -935,13 +970,14 @@ with tab4:
         ))
         fig_corr.add_hline(y=0, line_color="#9ca3af", line_width=1)
         fig_corr.update_layout(
-            title="Pearson r — Fuel Prices vs National CPI Inflation",
+            title=dict(text="Pearson r — Fuel Prices vs National CPI Inflation",
+                       font=dict(color=_TEXT, size=13, family=_FONT_FAMILY)),
             xaxis_title="Fuel Type", yaxis_title="Pearson r",
             yaxis_range=[-1, 1], barmode="group",
             height=360, margin=dict(l=0, r=0, t=40, b=0),
-            plot_bgcolor="#ffffff", paper_bgcolor="#ffffff",
             legend=dict(orientation="h", y=-0.22),
         )
+        _style(fig_corr)
         st.plotly_chart(fig_corr, use_container_width=True)
         st.caption(
             f"Based on {fuel_corr['n_overlap_months']} overlapping months "
@@ -991,12 +1027,13 @@ with tab4:
             textposition="auto",
         ))
         fig_exog.update_layout(
-            title="Test-set error: fuel-augmented vs univariate (lower = better)",
+            title=dict(text="Test-set error: fuel-augmented vs univariate (lower = better)",
+                       font=dict(color=_TEXT, size=13, family=_FONT_FAMILY)),
             yaxis_title="Error", barmode="group",
             height=340, margin=dict(l=0, r=0, t=40, b=0),
-            plot_bgcolor="#ffffff", paper_bgcolor="#ffffff",
             legend=dict(orientation="h", y=-0.22),
         )
+        _style(fig_exog)
         st.plotly_chart(fig_exog, use_container_width=True)
 
         coefs = exog_exp.get("exog_coefficients", {})
