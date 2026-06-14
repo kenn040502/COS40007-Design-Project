@@ -186,12 +186,20 @@ hr { border-color: #d1d5db !important; margin: 1rem 0 !important; }
   color: #92400e;
 }
 
-/* ── Tables ── */
-[data-testid="stDataFrame"] thead th {
-  background-color: #1a3c6e !important;
-  color: #ffffff !important;
-  font-weight: 600 !important;
+/* ── HTML app-table (Evaluation Metrics, Fuel Coefficients, etc.) ── */
+.app-table {
+  width: 100%; border-collapse: collapse;
+  font-size: 0.85rem; font-family: 'Segoe UI', system-ui, sans-serif;
 }
+.app-table th {
+  background: #1a3c6e; color: #ffffff;
+  padding: 9px 14px; text-align: left; font-weight: 600; font-size: 0.83rem;
+}
+.app-table td {
+  padding: 8px 14px; border-bottom: 1px solid #d1d5db; color: #1e2330;
+}
+.app-table tr:nth-child(even) td { background: #f9fafb; }
+.app-table tr:hover td { background: #f0f4ff; }
 
 /* ── Radio / select controls ── */
 [data-testid="stRadio"] label,
@@ -627,6 +635,25 @@ def _make_choropleth_cluster(geojson: dict, df: pd.DataFrame) -> go.Figure:
     return fig
 
 
+# ─── HTML table helper ───────────────────────────────────────────────────────
+def _html_table(df: pd.DataFrame) -> None:
+    headers = "".join(f"<th>{_html.escape(str(c))}</th>" for c in df.columns)
+    rows = ""
+    for _, row in df.iterrows():
+        cells = "".join(
+            f"<td>{_html.escape('' if pd.isna(v) else str(v))}</td>" for v in row
+        )
+        rows += f"<tr>{cells}</tr>"
+    st.markdown(
+        f'<div style="overflow-x:auto;">'
+        f'<table class="app-table">'
+        f'<thead><tr>{headers}</tr></thead>'
+        f'<tbody>{rows}</tbody>'
+        f'</table></div>',
+        unsafe_allow_html=True,
+    )
+
+
 # ─── Pipeline runner ─────────────────────────────────────────────────────────
 def _run_pipeline() -> None:
     script = os.path.join(ROOT_DIR, "run_pipeline.py")
@@ -1028,7 +1055,7 @@ with tab2:
             <p class="card-title">Evaluation Metrics</p>
             <p class="card-desc">ARIMA performance on the held-out 24-month test set.</p>
             """, unsafe_allow_html=True)
-            st.dataframe(pd.read_csv(ts_metrics_csv), use_container_width=True, hide_index=True)
+            _html_table(pd.read_csv(ts_metrics_csv))
 
 
 # ══════════════════════════════════════════════════════════════════════════════
@@ -1103,7 +1130,7 @@ with tab3:
         """, unsafe_allow_html=True)
         cm_path = os.path.join(MODELS_DIR, "cluster_metrics_summary.csv")
         if os.path.exists(cm_path):
-            st.dataframe(pd.read_csv(cm_path), use_container_width=True, hide_index=True)
+            _html_table(pd.read_csv(cm_path))
         if best_k:
             st.success(f"Selected K = {best_k}  (best silhouette score)", icon="✅")
 
@@ -1314,7 +1341,7 @@ with tab4:
                     }
                     for col, vals in coefs.items()
                 ]
-                st.dataframe(pd.DataFrame(coef_rows), use_container_width=True, hide_index=True)
+                _html_table(pd.DataFrame(coef_rows))
             st.caption(
                 f"ARIMAX order {tuple(exog_exp.get('order', []))} · "
                 f"test horizon {exog_exp.get('test_months')} months · "
