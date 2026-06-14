@@ -458,8 +458,6 @@ with tab1:
         xaxis_title="Date", yaxis_title=y_lbl,
         height=360, margin=dict(l=0, r=0, t=10, b=0),
         showlegend=False, plot_bgcolor="#ffffff", paper_bgcolor="#ffffff",
-        xaxis=dict(showspikes=True, spikecolor="#94a3b8", spikesnap="cursor",
-                   spikedash="solid", spikewidth=1),
         hovermode="x unified",
     )
     st.plotly_chart(fig_trend, use_container_width=True)
