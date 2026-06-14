@@ -157,6 +157,16 @@
     }
     .cluster-reset-btn:hover { border-color: var(--primary); color: var(--primary); }
 
+    /* ── Card entrance animation ── */
+    .anim-ready {
+      opacity: 0; transform: translateY(20px);
+      transition: opacity 0.45s ease, transform 0.45s ease;
+    }
+    .anim-visible { opacity: 1 !important; transform: translateY(0) !important; }
+
+    /* ── Map click cursor ── */
+    #chart-cluster-map, #chart-overview-map { cursor: pointer; }
+
     /* ── Progress bar ── */
     #ts-progress-wrap {
       margin-bottom: 14px; overflow: hidden;
@@ -282,7 +292,7 @@
   <div id="pipeline-box">
     <h3>Running Analysis Pipeline</h3>
     <div id="pipeline-log"></div>
-    <div id="pipeline-status">Starting…</div>
+    <div id="pipeline-status">Starting… <span id="pipeline-elapsed" style="color:var(--muted);font-size:0.82em;margin-left:6px;"></span></div>
     <button id="pipeline-cancel" onclick="cancelPipeline()">Cancel run</button>
     <button id="pipeline-close" onclick="closeRunModal()" disabled>Close</button>
   </div>
@@ -361,6 +371,18 @@
     </div>
   </div>
 
+  <div class="card">
+    <h2>State CPI Index Map</h2>
+    <p class="desc">
+      Mean CPI index per state (2010–present, base year 2010 = 100). Darker shading indicates
+      higher accumulated price levels. Hover over a state for details.
+    </p>
+    <div class="chart-wrap">
+      <button class="fullscreen-btn" onclick="toggleFullscreen(this)">⛶</button>
+      <div id="chart-overview-map" style="height:420px;"></div>
+    </div>
+  </div>
+
 </div><!-- /tab-overview -->
 
 <!-- ══════════════════════ TIME SERIES ══════════════════════ -->
@@ -392,7 +414,7 @@
 
     <div id="ts-progress-wrap" class="hidden">
       <div id="ts-progress-track"><div id="ts-progress-fill"></div></div>
-      <div id="ts-progress-label">Initialising…</div>
+      <div id="ts-progress-label">Initialising… <span id="ts-elapsed" style="color:var(--muted);font-size:0.82em;margin-left:6px;"></span></div>
     </div>
 
     <div id="ts-metrics" class="metric-row"></div>
@@ -477,6 +499,19 @@
         <div id="state-detail-chips"></div>
         <div id="chart-state-detail-bar" style="height:300px;"></div>
       </div>
+    </div>
+  </div>
+
+  <div class="card">
+    <h2>Malaysia State Cluster Map</h2>
+    <p class="desc">
+      Geographic distribution of K-Means cluster assignments across all 16 Malaysian states.
+      Each state is coloured by its cluster. Hover for income and CPI details.
+      W.P. Labuan (island off Sabah) is not shown on the map.
+    </p>
+    <div class="chart-wrap">
+      <button class="fullscreen-btn" onclick="toggleFullscreen(this)">⛶</button>
+      <div id="chart-cluster-map" style="height:440px;"></div>
     </div>
   </div>
 
@@ -605,6 +640,12 @@ const PALETTE = [
   '#f97316','#8b5cf6','#14b8a6','#ef4444',
 ];
 
+const SPIKE_X = {
+  showspikes: true, spikemode: 'across', spikesnap: 'cursor',
+  spikecolor: '#94a3b8', spikedash: 'solid', spikewidth: 1,
+};
+const PLOTLY_CFG = { displayModeBar: false, responsive: true };
+
 // ─── Tab switching ────────────────────────────────────────────────────────────
 function showTab(id, btn) {
   document.querySelectorAll('.tab-panel').forEach(p => p.classList.remove('active'));
@@ -655,17 +696,18 @@ async function loadNationalInflation() {
       yaxis: 'y2',
     },
   ], {
-    xaxis: { title: 'Date', type: 'date', tickformat: '%b %Y' },
+    xaxis: { title: 'Date', type: 'date', tickformat: '%b %Y', ...SPIKE_X },
     yaxis: { title: 'YoY Inflation (%)' },
     yaxis2: {
       title: 'MoM Inflation (%)', overlaying: 'y', side: 'right',
       showgrid: false, zeroline: false,
     },
+    hovermode: 'x unified',
     legend: { orientation: 'h', y: -0.22 },
     margin: { t: 20, r: 64 },
     shapes: [{ type:'line', x0:dates[0], x1:dates[dates.length-1],
                y0:0, y1:0, line:{ color:'#9ca3af', width:1, dash:'dot' } }],
-  }, { responsive: true });
+  }, PLOTLY_CFG);
 }
 
 // ─── Overview: division trends ────────────────────────────────────────────────
@@ -704,13 +746,14 @@ async function loadDivisionTrends() {
   });
 
   Plotly.newPlot('chart-division-trends', traces, {
-    xaxis: { title: 'Date', type: 'date', tickformat: '%b %Y' },
+    xaxis: { title: 'Date', type: 'date', tickformat: '%b %Y', ...SPIKE_X },
     yaxis: { title: 'YoY Inflation (%)' },
+    hovermode: 'x unified',
     shapes: [{ type:'line', x0:traces[0]?.x[0], x1:traces[0]?.x?.at(-1),
                y0:0, y1:0, line:{ color:'#9ca3af', width:1, dash:'dot' } }],
     legend: { orientation: 'v', x: 1.01, y: 1, font: { size: 11 } },
     margin: { t: 20, r: 220 },
-  }, { responsive: true });
+  }, PLOTLY_CFG);
 }
 
 // ─── Overview: state CPI explorer ─────────────────────────────────────────────
@@ -737,11 +780,12 @@ async function loadStateCPI() {
     line: { color: '#1a3c6e', width: 2 },
     fill: 'tozeroy', fillcolor: 'rgba(26,60,110,0.07)',
   }], {
-    xaxis: { title: 'Date', type: 'date', tickformat: '%b %Y' },
+    xaxis: { title: 'Date', type: 'date', tickformat: '%b %Y', ...SPIKE_X },
     yaxis: { title: 'CPI Index (Base 2010 = 100)' },
+    hovermode: 'x unified',
     title: { text: 'CPI Index — ' + state, font: { size: 13 } },
     margin: { t: 40, r: 20 },
-  }, { responsive: true });
+  }, PLOTLY_CFG);
 }
 
 // ─── Time series: pre-computed forecast (fast initial load) ───────────────────
@@ -755,15 +799,32 @@ async function loadPrecomputedForecast() {
 
 // ─── Time series: live ARIMA via SSE ─────────────────────────────────────────
 let _liveController = null;
+let _elapsedTimer = null;
+let _forecastStart = null;
+
+function _startElapsedTimer() {
+  _forecastStart = Date.now();
+  document.getElementById('ts-elapsed').textContent = '0s';
+  _elapsedTimer = setInterval(() => {
+    const s = Math.floor((Date.now() - _forecastStart) / 1000);
+    document.getElementById('ts-elapsed').textContent = s + 's';
+  }, 1000);
+}
+
+function _stopElapsedTimer() {
+  if (_elapsedTimer) { clearInterval(_elapsedTimer); _elapsedTimer = null; }
+  document.getElementById('ts-elapsed').textContent = '';
+}
 
 function setProgress(pct, label) {
   const wrap = document.getElementById('ts-progress-wrap');
   wrap.classList.remove('hidden');
   document.getElementById('ts-progress-fill').style.width = pct + '%';
-  document.getElementById('ts-progress-label').textContent = label;
+  document.getElementById('ts-progress-label').childNodes[0].textContent = label + ' ';
 }
 
 function hideProgress() {
+  _stopElapsedTimer();
   document.getElementById('ts-progress-wrap').classList.add('hidden');
   document.getElementById('ts-progress-fill').style.width = '0%';
 }
@@ -809,8 +870,9 @@ function renderForecastChart(d) {
     },
   ], {
     title: { text: 'National CPI Inflation Forecast — ' + orderStr, font: { size: 13 } },
-    xaxis: { title: 'Date', type: 'date', tickformat: '%b %Y' },
+    xaxis: { title: 'Date', type: 'date', tickformat: '%b %Y', ...SPIKE_X },
     yaxis: { title: 'CPI Inflation YoY (%)' },
+    hovermode: 'x unified',
     shapes: (test.dates && test.dates[0]) ? [{
       type: 'line', x0: test.dates[0], x1: test.dates[0],
       yref: 'paper', y0: 0, y1: 1,
@@ -822,7 +884,7 @@ function renderForecastChart(d) {
     }] : [],
     legend: { orientation: 'h', y: -0.22 },
     margin: { t: 48, r: 20 },
-  }, { responsive: true });
+  }, PLOTLY_CFG);
 }
 
 function updateForecastMetrics(d) {
@@ -886,6 +948,7 @@ async function loadForecastLive() {
   _liveController = new AbortController();
   btn.disabled = true;
   setProgress(5, 'Initialising…');
+  _startElapsedTimer();
 
   try {
     const res = await fetch('/api/ts/live?horizon=' + horizon, {
@@ -911,16 +974,19 @@ async function loadForecastLive() {
         if (evt.type === 'progress') {
           setProgress(evt.pct, evt.step);
         } else if (evt.type === 'result') {
+          _stopElapsedTimer();
           setProgress(100, 'Done');
           renderForecastChart(evt.data);
           updateForecastMetrics(evt.data);
           setTimeout(hideProgress, 900);
         } else if (evt.type === 'error') {
+          _stopElapsedTimer();
           setProgress(0, '⚠ ' + evt.message);
         }
       }
     }
   } catch (e) {
+    _stopElapsedTimer();
     if (e.name !== 'AbortError') setProgress(0, '⚠ ' + e.message);
   } finally {
     btn.disabled = false;
@@ -1212,14 +1278,15 @@ function showStateDetail(stateName) {
   const clsVals    = FEATURE_META.map(f => clsAvg(f.key) / natAvg(f.key) * 100);
   const natVals    = FEATURE_META.map(() => 100);
 
+  const _barZeros = featureLabels.map(() => 0);
   Plotly.react('chart-state-detail-bar', [
     {
-      name: stateName, type: 'bar', x: featureLabels, y: stateVals,
+      name: stateName, type: 'bar', x: featureLabels, y: _barZeros,
       marker: { color: '#1a3c6e', opacity: 0.9 },
     },
     {
       name: 'Cluster avg (' + row.cluster_label + ')', type: 'bar',
-      x: featureLabels, y: clsVals,
+      x: featureLabels, y: _barZeros,
       marker: { color: '#e8523a', opacity: 0.75 },
     },
     {
@@ -1235,6 +1302,10 @@ function showStateDetail(stateName) {
     margin: { t: 40, r: 20, b: 80 },
   }, { responsive: true });
 
+  requestAnimationFrame(() => Plotly.animate('chart-state-detail-bar', {
+    data: [{ y: stateVals }, { y: clsVals }], traces: [0, 1],
+  }, { transition: { duration: 600, easing: 'cubic-in-out' }, frame: { duration: 600 } }));
+
   const panel = document.getElementById('state-detail-panel');
   panel.classList.add('visible');
   panel.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
@@ -1242,6 +1313,130 @@ function showStateDetail(stateName) {
 
 function closeStateDetail() {
   document.getElementById('state-detail-panel').classList.remove('visible');
+}
+
+// ─── Malaysia state maps ──────────────────────────────────────────────────────
+const MY_NAME_MAP = {
+  'Pulau Pinang':      'Penang',
+  'W.P. Kuala Lumpur': 'Federal Territory of Kuala Lumpur',
+  'W.P. Putrajaya':    'Federal Territory of Putrajaya',
+};
+const MY_GEOJSON_URL = 'https://raw.githubusercontent.com/codeforgermany/click_that_hood/main/public/data/malaysia.geojson';
+let _myGeoJson = null;
+
+async function _fetchMalaysiaGeoJson() {
+  if (_myGeoJson) return _myGeoJson;
+  const res = await fetch(MY_GEOJSON_URL);
+  _myGeoJson = await res.json();
+  return _myGeoJson;
+}
+
+const MY_GEO_LAYOUT = {
+  fitbounds: 'locations',
+  visible: false,
+  bgcolor: 'rgba(248,250,252,1)',
+  showland: true, landcolor: '#f1f5f9',
+  showocean: true, oceancolor: '#e0f2fe',
+  showcoastlines: true, coastlinecolor: '#94a3b8',
+  showframe: false,
+  lataxis: { range: [0.5, 8.5] },
+  lonaxis: { range: [98.5, 120.5] },
+};
+
+async function loadCPIMap() {
+  const [geojson, stateData] = await Promise.all([
+    _fetchMalaysiaGeoJson(),
+    fetch('/api/cluster/states').then(r => r.json()),
+  ]);
+  const locations = [], zVals = [], hoverText = [];
+  stateData.forEach(d => {
+    const geoName = MY_NAME_MAP[d.state] || d.state;
+    locations.push(geoName);
+    zVals.push(d.mean_cpi_index);
+    hoverText.push(
+      `<b>${d.state}</b><br>` +
+      `Mean CPI Index: ${d.mean_cpi_index.toFixed(1)}<br>` +
+      `CPI Growth Rate: ${(d.cpi_growth_rate * 100).toFixed(2)}%<br>` +
+      `CPI Volatility: ${d.cpi_volatility.toFixed(3)}`
+    );
+  });
+  Plotly.newPlot('chart-overview-map', [{
+    type: 'choropleth', geojson, featureidkey: 'properties.name',
+    locations, z: zVals, text: hoverText, hoverinfo: 'text',
+    colorscale: 'YlOrRd',
+    colorbar: { title: { text: 'CPI Index', side: 'right' }, thickness: 14, len: 0.6 },
+    marker: { line: { color: '#fff', width: 0.8 } },
+  }], {
+    geo: MY_GEO_LAYOUT,
+    margin: { t: 0, b: 0, l: 0, r: 60 },
+    paper_bgcolor: 'rgba(0,0,0,0)',
+  }, { displayModeBar: false, responsive: true });
+
+  // Click a state → jump to Clustering tab and show its detail panel
+  const _revMap = Object.fromEntries(Object.entries(MY_NAME_MAP).map(([k, v]) => [v, k]));
+  document.getElementById('chart-overview-map').on('plotly_click', evt => {
+    if (!evt.points.length) return;
+    const stateName = _revMap[evt.points[0].location] || evt.points[0].location;
+    const btn = document.querySelector("nav button[onclick*=\"'clustering'\"]");
+    if (btn) showTab('clustering', btn);
+    setTimeout(() => showStateDetail(stateName), 120);
+  });
+}
+
+async function loadClusterMap() {
+  const [geojson, stateData] = await Promise.all([
+    _fetchMalaysiaGeoJson(),
+    fetch('/api/cluster/states').then(r => r.json()),
+  ]);
+  const labels = [...new Set(stateData.map(d => d.cluster_label))].sort();
+  const n = labels.length;
+  const labelIndex = Object.fromEntries(labels.map((l, i) => [l, i]));
+
+  // Discrete colorscale: each band covers 1/n of [0,1]
+  const colorscale = [];
+  labels.forEach((_, i) => {
+    const c = PALETTE[i % PALETTE.length];
+    colorscale.push([i / n,       c]);
+    colorscale.push([(i + 1) / n, c]);
+  });
+
+  const locations = [], zVals = [], hoverText = [];
+  stateData.forEach(d => {
+    const geoName = MY_NAME_MAP[d.state] || d.state;
+    locations.push(geoName);
+    zVals.push(labelIndex[d.cluster_label]);
+    hoverText.push(
+      `<b>${d.state}</b><br>` +
+      `Cluster: ${d.cluster_label}<br>` +
+      `Mean Income: RM ${(d.income_mean_latest).toLocaleString()}<br>` +
+      `CPI Growth: ${(d.cpi_growth_rate * 100).toFixed(2)}%`
+    );
+  });
+
+  Plotly.newPlot('chart-cluster-map', [{
+    type: 'choropleth', geojson, featureidkey: 'properties.name',
+    locations, z: zVals, text: hoverText, hoverinfo: 'text',
+    colorscale, zmin: 0, zmax: n - 1,
+    colorbar: {
+      title: { text: 'Cluster', side: 'right' },
+      thickness: 14, len: 0.6,
+      tickvals: labels.map((_, i) => i + 0.5),
+      ticktext: labels,
+      nticks: n,
+    },
+    marker: { line: { color: '#fff', width: 0.8 } },
+  }], {
+    geo: MY_GEO_LAYOUT,
+    margin: { t: 0, b: 0, l: 0, r: 140 },
+    paper_bgcolor: 'rgba(0,0,0,0)',
+  }, { displayModeBar: false, responsive: true });
+
+  // Click a state → show its detail panel (same tab)
+  const _revMap2 = Object.fromEntries(Object.entries(MY_NAME_MAP).map(([k, v]) => [v, k]));
+  document.getElementById('chart-cluster-map').on('plotly_click', evt => {
+    if (!evt.points.length) return;
+    showStateDetail(_revMap2[evt.points[0].location] || evt.points[0].location);
+  });
 }
 
 async function loadClusterMetrics() {
@@ -1285,11 +1480,12 @@ async function loadFuelPrices() {
       line: { color: '#9ca3af', width: 1.5, dash: 'dot' },
     },
   ], {
-    xaxis: { title: 'Date', type: 'date' },
+    xaxis: { title: 'Date', type: 'date', tickformat: '%b %Y', ...SPIKE_X },
     yaxis: { title: 'Price (RM / litre)' },
+    hovermode: 'x unified',
     legend: { orientation: 'h', y: -0.22 },
     margin: { t: 20, r: 20 },
-  }, { responsive: true });
+  }, PLOTLY_CFG);
 }
 
 async function loadFuelCorrelation() {
@@ -1311,12 +1507,12 @@ async function loadFuelCorrelation() {
   Plotly.newPlot('chart-fuel-correlation', [
     {
       name: 'Contemporaneous (r)', type: 'bar',
-      x: labels, y: contemp,
+      x: labels, y: labels.map(() => 0),
       marker: { color: contemp.map(v => v >= 0 ? '#1a3c6e' : '#e8523a'), opacity: 0.85 },
     },
     {
       name: 'Lag-1 month (r)', type: 'bar',
-      x: labels, y: lag1,
+      x: labels, y: labels.map(() => 0),
       marker: { color: lag1.map(v => v >= 0 ? '#a855f7' : '#f59e0b'), opacity: 0.85 },
     },
   ], {
@@ -1324,13 +1520,15 @@ async function loadFuelCorrelation() {
     xaxis: { title: 'Fuel Type' },
     yaxis: { title: 'Pearson r', range: [-1, 1] },
     barmode: 'group',
+    transition: { duration: 700, easing: 'cubic-in-out' },
     shapes: [{
       type: 'line', x0: -0.5, x1: fuelKeys.length - 0.5,
       y0: 0, y1: 0, line: { color: '#9ca3af', width: 1 },
     }],
     legend: { orientation: 'h', y: -0.22 },
     margin: { t: 48, r: 20 },
-  }, { responsive: true });
+  }, PLOTLY_CFG);
+  setTimeout(() => Plotly.restyle('chart-fuel-correlation', { y: [contemp, lag1] }, [0, 1]), 100);
 }
 
 async function loadFuelExog() {
@@ -1370,13 +1568,31 @@ async function loadFuelExog() {
 }
 
 // ─── Pipeline modal ───────────────────────────────────────────────────────────
+let _pipelineTimer = null;
+let _pipelineStart = null;
+
+function _startPipelineTimer() {
+  _pipelineStart = Date.now();
+  document.getElementById('pipeline-elapsed').textContent = '0s';
+  _pipelineTimer = setInterval(() => {
+    const s = Math.floor((Date.now() - _pipelineStart) / 1000);
+    document.getElementById('pipeline-elapsed').textContent = s + 's';
+  }, 1000);
+}
+
+function _stopPipelineTimer() {
+  if (_pipelineTimer) { clearInterval(_pipelineTimer); _pipelineTimer = null; }
+}
+
 function openRunModal() {
   document.getElementById('pipeline-modal').classList.add('open');
   document.getElementById('pipeline-log').innerHTML = '';
-  document.getElementById('pipeline-status').textContent = 'Starting…';
+  document.getElementById('pipeline-status').firstChild.textContent = 'Starting… ';
+  document.getElementById('pipeline-elapsed').textContent = '';
   document.getElementById('pipeline-close').disabled = true;
   document.getElementById('pipeline-cancel').disabled = false;
   document.getElementById('run-btn').disabled = true;
+  _startPipelineTimer();
 
   const log = document.getElementById('pipeline-log');
   function append(text, cls) {
@@ -1409,10 +1625,13 @@ function openRunModal() {
           if (part.startsWith('event: done')) {
             const code = part.split('data: ')[1]?.trim();
             const ok   = code === '0';
-            document.getElementById('pipeline-status').textContent =
-              ok ? '✅ Pipeline complete — reloading…' : '❌ Pipeline failed (see log above)';
+            const elapsed = _pipelineStart ? Math.floor((Date.now() - _pipelineStart) / 1000) + 's' : '';
+            _stopPipelineTimer();
+            document.getElementById('pipeline-elapsed').textContent = elapsed ? '(' + elapsed + ')' : '';
+            document.getElementById('pipeline-status').firstChild.textContent =
+              ok ? '✅ Pipeline complete — reloading… ' : '❌ Pipeline failed (see log above) ';
             document.getElementById('pipeline-close').disabled = false;
-      document.getElementById('pipeline-cancel').disabled = true;
+            document.getElementById('pipeline-cancel').disabled = true;
             document.getElementById('run-btn').disabled = false;
             if (ok) setTimeout(() => location.reload(), 1500);
           } else if (part.startsWith('data: ')) {
@@ -1428,6 +1647,8 @@ function openRunModal() {
     }
     read();
   }).catch(err => {
+    _stopPipelineTimer();
+    document.getElementById('pipeline-elapsed').textContent = '';
     append('ERROR: ' + err, 'err');
     document.getElementById('pipeline-close').disabled = false;
     document.getElementById('run-btn').disabled = false;
@@ -1436,7 +1657,9 @@ function openRunModal() {
 
 function cancelPipeline() {
   document.getElementById('pipeline-cancel').disabled = true;
-  document.getElementById('pipeline-status').textContent = 'Cancelling…';
+  _stopPipelineTimer();
+  document.getElementById('pipeline-elapsed').textContent = '';
+  document.getElementById('pipeline-status').firstChild.textContent = 'Cancelling… ';
   fetch('/api/run/cancel', { method: 'POST' }).catch(() => {});
 }
 
@@ -1484,6 +1707,7 @@ document.addEventListener('fullscreenchange', () => {
   try { await loadNationalInflation(); }  catch (_) {}
   try { await loadDivisionTrends(); }     catch (_) {}
   try { await loadStateCPIStates(); }     catch (_) {}
+  try { await loadCPIMap(); }             catch (_) {}
 
   // Time series: load pre-computed result first (fast), metrics table
   try { await loadPrecomputedForecast(); } catch (_) {}
@@ -1492,6 +1716,7 @@ document.addEventListener('fullscreenchange', () => {
   // Clustering
   try { await loadClusterElbow(); }        catch (_) {}
   try { await loadClusterChart(); }        catch (_) {}
+  try { await loadClusterMap(); }          catch (_) {}
   try { await loadClusterHierarchical(); } catch (_) {}
   try { await loadClusterDendrogram(); }   catch (_) {}
   try { await loadClusterMetrics(); }      catch (_) {}
@@ -1500,6 +1725,19 @@ document.addEventListener('fullscreenchange', () => {
   try { await loadFuelPrices(); }          catch (_) {}
   try { await loadFuelCorrelation(); }     catch (_) {}
   try { await loadFuelExog(); }            catch (_) {}
+})();
+// ─── Card entrance animations (IntersectionObserver) ─────────────────────────
+(function () {
+  const cards = document.querySelectorAll('.card');
+  cards.forEach(c => c.classList.add('anim-ready'));
+  const obs = new IntersectionObserver(entries => {
+    entries.forEach(e => {
+      if (!e.isIntersecting) return;
+      e.target.classList.add('anim-visible');
+      obs.unobserve(e.target);
+    });
+  }, { threshold: 0.08, rootMargin: '0px 0px -20px 0px' });
+  cards.forEach(c => obs.observe(c));
 })();
 </script>
 </body>

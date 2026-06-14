@@ -55,11 +55,15 @@ def select_order(series: pd.Series, p_max: int = 4, q_max: int = 4) -> tuple:
 
     best_bic = np.inf
     best_order = (1, d, 1)
+    total = (p_max + 1) * (q_max + 1) - 1
+    done = 0
 
     for p in range(0, p_max + 1):
         for q in range(0, q_max + 1):
             if p == 0 and q == 0:
                 continue
+            done += 1
+            print(f"    BIC grid [{done}/{total}]: ARIMA({p},{d},{q})", flush=True)
             try:
                 m = ARIMA(series.values, order=(p, d, q)).fit()
                 if m.bic < best_bic:
@@ -197,7 +201,25 @@ def compute_fuel_exog_model(inflation_df: pd.DataFrame, fuelprice_df: pd.DataFra
     y_train, y_test = y.iloc[:-test_n], y.iloc[-test_n:]
     X_train, X_test = X.iloc[:-test_n], X.iloc[-test_n:]
 
-    order = select_order(y_train)
+    # Reuse cached order if available to skip the expensive BIC grid search.
+    # Delete outputs/models/fuel_exog_results.json to force a fresh search.
+    order = None
+    _exog_cache = os.path.join(MODELS_DIR, "fuel_exog_results.json")
+    if os.path.exists(_exog_cache):
+        try:
+            with open(_exog_cache) as _f:
+                _ec = json.load(_f)
+            _o = tuple(_ec.get("order", []))
+            if len(_o) == 3:
+                order = _o
+                print(f"    Reusing cached ARIMAX order {order} "
+                      f"(delete outputs/models/fuel_exog_results.json to re-run grid search)")
+        except Exception:
+            order = None
+
+    if order is None:
+        print(f"    BIC grid search on fuel/CPI overlap ({len(y_train)} months)…")
+        order = select_order(y_train)
 
     # ARIMAX — fuel as exogenous regressor
     arimax = SARIMAX(y_train, exog=X_train, order=order,
@@ -225,7 +247,7 @@ def compute_fuel_exog_model(inflation_df: pd.DataFrame, fuelprice_df: pd.DataFra
             coefs[col] = {"coef": round(float(full.params[col]), 4),
                           "pvalue": round(float(full.pvalues[col]), 4)}
 
-    return {
+    result = {
         "available": True,
         "order": list(order),
         "exog_cols": list(exog_cols),
@@ -238,12 +260,19 @@ def compute_fuel_exog_model(inflation_df: pd.DataFrame, fuelprice_df: pd.DataFra
         "rmse_improvement_pct": round(float(rmse_gain), 2),
         "exog_coefficients": coefs,
     }
+    with open(_exog_cache, "w") as _f:
+        json.dump(result, _f, indent=2)
+    return result
 
 
-def run_live(inflation_df: pd.DataFrame, horizon: int = FORECAST_HORIZON, order: tuple = None):
+def run_live(inflation_df: pd.DataFrame, horizon: int = FORECAST_HORIZON,
+             order: tuple = None, precomputed: dict = None):
     """
     Generator for SSE streaming. Yields progress and result dicts.
     Each dict has a 'type' key: 'progress' | 'result' | 'error'.
+
+    precomputed: dict from arima_results.json. When the order and series
+    length match, all fitting is skipped — only get_forecast() is called.
     """
     series = inflation_df.set_index("date")["inflation_yoy"].sort_index()
 
@@ -251,32 +280,75 @@ def run_live(inflation_df: pd.DataFrame, horizon: int = FORECAST_HORIZON, order:
         yield {"type": "error", "message": "Not enough data (need ≥30 months)"}
         return
 
-    train, test = train_test_split_ts(series)
+    # Determine whether pre-computed train/test results are reusable.
+    _pc_order = tuple(precomputed.get("arima_order", [])) if precomputed else ()
+    _pc_len   = precomputed.get("series_length", 0)       if precomputed else 0
+    reuse = (order is not None and _pc_order == order and _pc_len == len(series))
 
-    yield {"type": "progress", "step": "Running ADF stationarity test…", "pct": 10}
-    stat = check_stationarity(train)
-    stat_label = "stationary" if stat["is_stationary"] else "non-stationary"
-    yield {"type": "progress", "step": f"ADF p={stat['p_value']} ({stat_label})", "pct": 22}
+    if reuse:
+        stat       = precomputed["stationarity"]
+        metrics    = precomputed["metrics"]
+        train_data = precomputed["train"]
+        test_data  = precomputed["test"]
+        stat_label = "stationary" if stat["is_stationary"] else "non-stationary"
+        yield {"type": "progress",
+               "step": f"ADF p={stat['p_value']} ({stat_label}) [cached]", "pct": 22}
+        yield {"type": "progress",
+               "step": f"ARIMA{order} — using pre-computed train/test results", "pct": 54}
+        yield {"type": "progress",
+               "step": f"RMSE={metrics['RMSE']}  MASE={metrics.get('MASE','—')} [cached]",
+               "pct": 82}
+    else:
+        train, test = train_test_split_ts(series)
+        yield {"type": "progress", "step": "Running ADF stationarity test…", "pct": 10}
+        stat = check_stationarity(train)
+        stat_label = "stationary" if stat["is_stationary"] else "non-stationary"
+        yield {"type": "progress",
+               "step": f"ADF p={stat['p_value']} ({stat_label})", "pct": 22}
 
-    if order is None:
-        yield {"type": "progress", "step": "Selecting best ARIMA order via BIC grid search…", "pct": 38}
-        order = select_order(train)
+        if order is None:
+            yield {"type": "progress",
+                   "step": "Selecting best ARIMA order via BIC grid search…", "pct": 38}
+            order = select_order(train)
 
-    yield {"type": "progress", "step": f"Fitting ARIMA{order} on training data…", "pct": 54}
-    try:
-        fitted = fit_arima(train, order)
-    except Exception as exc:
-        yield {"type": "error", "message": f"ARIMA fit failed: {exc}"}
-        return
+        yield {"type": "progress",
+               "step": f"Fitting ARIMA{order} on training data…", "pct": 54}
+        try:
+            fitted = fit_arima(train, order)
+        except Exception as exc:
+            yield {"type": "error", "message": f"ARIMA fit failed: {exc}"}
+            return
 
-    yield {"type": "progress", "step": "Evaluating on held-out 24-month test period…", "pct": 68}
-    test_pred, _, _ = _extract_forecast(fitted.get_forecast(steps=len(test)))
-    metrics = evaluate_forecast(test, test_pred, train=train)
-    yield {"type": "progress",
-           "step": f"RMSE={metrics['RMSE']}  MASE={metrics.get('MASE', '—')}", "pct": 82}
+        yield {"type": "progress",
+               "step": "Evaluating on held-out 24-month test period…", "pct": 68}
+        test_pred, _, _ = _extract_forecast(fitted.get_forecast(steps=len(test)))
+        metrics = evaluate_forecast(test, test_pred, train=train)
+        yield {"type": "progress",
+               "step": f"RMSE={metrics['RMSE']}  MASE={metrics.get('MASE', '—')}", "pct": 82}
 
-    yield {"type": "progress", "step": f"Refitting on full series → forecasting {horizon} months…", "pct": 93}
-    final_model = fit_arima(series, order)
+        train_data = {"dates":  [str(d.date()) for d in train.index],
+                      "values": [float(v) for v in train.values]}
+        test_data  = {"dates":     [str(d.date()) for d in test.index],
+                      "actual":    [float(v) for v in test.values],
+                      "predicted": [float(v) for v in test_pred]}
+
+    # Try loading the pre-fitted full-series model to skip the expensive refit.
+    final_model = None
+    _fitted_path = os.path.join(MODELS_DIR, "arima_fitted.pkl")
+    if reuse and os.path.exists(_fitted_path):
+        try:
+            from statsmodels.tsa.arima.model import ARIMAResults
+            final_model = ARIMAResults.load(_fitted_path)
+            yield {"type": "progress",
+                   "step": f"Loaded pre-fitted model → forecasting {horizon} months…", "pct": 93}
+        except Exception:
+            final_model = None
+
+    if final_model is None:
+        yield {"type": "progress",
+               "step": f"Refitting on full series → forecasting {horizon} months…", "pct": 93}
+        final_model = fit_arima(series, order)
+
     future_pred, future_lower, future_upper = _extract_forecast(
         final_model.get_forecast(steps=horizon)
     )
@@ -287,15 +359,8 @@ def run_live(inflation_df: pd.DataFrame, horizon: int = FORECAST_HORIZON, order:
         "type": "result",
         "pct": 100,
         "data": {
-            "train": {
-                "dates": [str(d.date()) for d in train.index],
-                "values": [float(v) for v in train.values],
-            },
-            "test": {
-                "dates":     [str(d.date()) for d in test.index],
-                "actual":    [float(v) for v in test.values],
-                "predicted": [float(v) for v in test_pred],
-            },
+            "train": train_data,
+            "test":  test_data,
             "forecast": {
                 "dates":  [str(d.date()) for d in future_dates],
                 "values": [float(v) for v in future_pred],
@@ -429,23 +494,84 @@ def run_all(inflation_df: pd.DataFrame = None, fuelprice_df: pd.DataFrame = None
     print(f"  ADF test: p={stationarity['p_value']} "
           f"({'stationary' if stationarity['is_stationary'] else 'non-stationary'})")
 
-    order = select_order(train)
+    # Reuse cached order to skip the expensive BIC grid search on re-runs.
+    # Delete outputs/models/arima_results.json to force a fresh grid search.
+    order = None
+    cached_path = os.path.join(MODELS_DIR, "arima_results.json")
+    if os.path.exists(cached_path):
+        try:
+            with open(cached_path) as _f:
+                _cached = json.load(_f)
+            _o = tuple(_cached.get("arima_order", []))
+            if len(_o) == 3:
+                order = _o
+                print(f"  Reusing cached order ARIMA{order} "
+                      f"(delete outputs/models/arima_results.json to re-run grid search)")
+        except Exception:
+            order = None
+
+    if order is None:
+        print(f"  BIC grid search (p,q ≤ 4) — fitting up to 24 models…")
+        order = select_order(train)
     print(f"  BIC-selected order: ARIMA{order}")
 
-    fitted = fit_arima(train, order)
-    test_pred, _, _ = _extract_forecast(fitted.get_forecast(steps=len(test)))
-    metrics = evaluate_forecast(test, test_pred, train=train)
+    # If order and series length match the cache, skip both expensive fits.
+    _pkl_path = os.path.join(MODELS_DIR, "arima_fitted.pkl")
+    _cache_ok = (
+        order is not None
+        and os.path.exists(cached_path)
+        and os.path.exists(_pkl_path)
+    )
+    if _cache_ok:
+        try:
+            _c = _cached  # already loaded above
+            _cache_ok = (
+                tuple(_c.get("arima_order", [])) == order
+                and _c.get("series_length") == len(series)
+                and "train" in _c and "test" in _c and "metrics" in _c
+            )
+        except Exception:
+            _cache_ok = False
 
-    # Naive random-walk baseline on the same test set — gives ARIMA something
-    # to beat. MASE already encodes this, but an explicit baseline is clearer.
-    baseline_pred = naive_forecast(train, len(test))
-    baseline_metrics = evaluate_forecast(test, baseline_pred, train=train)
-    print(f"  Test metrics: MAE={metrics['MAE']} RMSE={metrics['RMSE']} "
-          f"sMAPE={metrics['sMAPE']}% MASE={metrics.get('MASE')}")
-    print(f"  Naive baseline: RMSE={baseline_metrics['RMSE']} "
-          f"(ARIMA MASE<1 means it beats this baseline)")
+    if _cache_ok:
+        print(f"  Reusing pre-computed train/test results (series unchanged)…")
+        metrics          = {k: float(v) for k, v in _cached["metrics"].items()}
+        baseline_metrics = {k: float(v) for k, v in _cached["baseline"]["metrics"].items()}
+        stationarity     = _cached["stationarity"]
+        train_result     = _cached["train"]
+        test_result      = _cached["test"]
+        print(f"  Test metrics: MAE={metrics['MAE']} RMSE={metrics['RMSE']} "
+              f"sMAPE={metrics['sMAPE']}% MASE={metrics.get('MASE')}")
+        print(f"  Loading pre-fitted ARIMA model…")
+        from statsmodels.tsa.arima.model import ARIMAResults
+        final_model = ARIMAResults.load(_pkl_path)
+    else:
+        print(f"  Fitting ARIMA{order} on training data ({len(train)} months)…")
+        fitted = fit_arima(train, order)
+        test_pred, _, _ = _extract_forecast(fitted.get_forecast(steps=len(test)))
+        metrics = evaluate_forecast(test, test_pred, train=train)
+        baseline_pred = naive_forecast(train, len(test))
+        baseline_metrics = evaluate_forecast(test, baseline_pred, train=train)
+        print(f"  Test metrics: MAE={metrics['MAE']} RMSE={metrics['RMSE']} "
+              f"sMAPE={metrics['sMAPE']}% MASE={metrics.get('MASE')}")
+        print(f"  Naive baseline: RMSE={baseline_metrics['RMSE']} "
+              f"(ARIMA MASE<1 means it beats this baseline)")
+        train_result = {
+            "dates":  [str(d.date()) for d in train.index],
+            "values": [float(v) for v in train.values],
+        }
+        test_result = {
+            "dates":     [str(d.date()) for d in test.index],
+            "actual":    [float(v) for v in test.values],
+            "predicted": [float(v) for v in test_pred],
+        }
+        print(f"  Fitting ARIMA{order} on full series ({len(series)} months)…")
+        final_model = fit_arima(series, order)
+        try:
+            final_model.save(_pkl_path)
+        except Exception:
+            pass
 
-    final_model = fit_arima(series, order)
     future_pred, future_lower, future_upper = _extract_forecast(
         final_model.get_forecast(steps=FORECAST_HORIZON)
     )
@@ -453,15 +579,8 @@ def run_all(inflation_df: pd.DataFrame = None, fuelprice_df: pd.DataFrame = None
     future_dates = pd.date_range(last_date, periods=FORECAST_HORIZON + 1, freq="MS")[1:]
 
     result = {
-        "train": {
-            "dates":  [str(d.date()) for d in train.index],
-            "values": [float(v) for v in train.values],
-        },
-        "test": {
-            "dates":     [str(d.date()) for d in test.index],
-            "actual":    [float(v) for v in test.values],
-            "predicted": [float(v) for v in test_pred],
-        },
+        "train": train_result,
+        "test":  test_result,
         "forecast": {
             "dates":  [str(d.date()) for d in future_dates],
             "values": [float(v) for v in future_pred],

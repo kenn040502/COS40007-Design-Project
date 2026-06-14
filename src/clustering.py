@@ -102,8 +102,8 @@ def assign_semantic_labels(df: pd.DataFrame, feature_cols=None) -> tuple:
     k = len(order)
     semantic = [
         "Low Income & Low CPI",
-        "Mid-Low Income",
-        "Mid-High Income",
+        "Mid-Low Income & Mid-Low CPI",
+        "Mid-High Income & High CPI",
         "High Income & High CPI",
     ]
     label_map = {}
