@@ -17,6 +17,13 @@ import os
 os.chdir(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
+# Point matplotlib at the pre-built font cache committed with the repo.
+# This avoids the 2-3 minute "building font cache" step on cold Render starts.
+os.environ.setdefault(
+    "MPLCONFIGDIR",
+    os.path.join(os.path.dirname(os.path.abspath(__file__)), "outputs", "mpl_cache"),
+)
+
 from src.preprocessing import run_all as preprocess
 from src.time_series import run_all as run_ts
 from src.clustering import run_all as run_clustering
