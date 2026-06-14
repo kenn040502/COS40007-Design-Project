@@ -872,9 +872,13 @@ with tab2:
                 for event in _run_live(inf_df, horizon=horizon,
                                        order=precomp_order, precomputed=arima):
                     if event.get("type") == "result":
-                        arima_src = event
+                        # run_live wraps result under event["data"]
+                        arima_src = event.get("data", event)
                         break
 
+        if "train" not in arima_src:
+            st.warning("Forecast data unavailable — re-run the pipeline.")
+            st.stop()
         train_dates = pd.to_datetime(arima_src["train"]["dates"])
         train_vals  = np.array(arima_src["train"]["values"])
         cut10       = train_dates.max() - pd.DateOffset(years=10)
