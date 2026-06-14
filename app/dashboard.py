@@ -156,16 +156,19 @@ def api_ts_live():
         inflation_df = _load_df("overall_inflation.csv")
         inflation_df = inflation_df.copy()
         inflation_df["date"] = pd.to_datetime(inflation_df["date"])
-        # Reuse the pre-computed best order to skip the expensive BIC grid search
+        # Pass pre-computed results so run_live can skip all model fitting
         precomputed_order = None
+        precomputed_data = None
         try:
             arima_data = _load_arima()
             order_list = arima_data.get("arima_order") or arima_data.get("order")
             if order_list and len(order_list) == 3:
                 precomputed_order = tuple(int(x) for x in order_list)
+                precomputed_data = arima_data
         except Exception:
             pass
-        for event in run_live(inflation_df, horizon=horizon, order=precomputed_order):
+        for event in run_live(inflation_df, horizon=horizon,
+                              order=precomputed_order, precomputed=precomputed_data):
             yield f"data: {json.dumps(event)}\n\n"
 
     return Response(

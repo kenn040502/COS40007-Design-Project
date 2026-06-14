@@ -265,10 +265,14 @@ def compute_fuel_exog_model(inflation_df: pd.DataFrame, fuelprice_df: pd.DataFra
     return result
 
 
-def run_live(inflation_df: pd.DataFrame, horizon: int = FORECAST_HORIZON, order: tuple = None):
+def run_live(inflation_df: pd.DataFrame, horizon: int = FORECAST_HORIZON,
+             order: tuple = None, precomputed: dict = None):
     """
     Generator for SSE streaming. Yields progress and result dicts.
     Each dict has a 'type' key: 'progress' | 'result' | 'error'.
+
+    precomputed: dict from arima_results.json. When the order and series
+    length match, all fitting is skipped — only get_forecast() is called.
     """
     series = inflation_df.set_index("date")["inflation_yoy"].sort_index()
 
@@ -276,32 +280,75 @@ def run_live(inflation_df: pd.DataFrame, horizon: int = FORECAST_HORIZON, order:
         yield {"type": "error", "message": "Not enough data (need ≥30 months)"}
         return
 
-    train, test = train_test_split_ts(series)
+    # Determine whether pre-computed train/test results are reusable.
+    _pc_order = tuple(precomputed.get("arima_order", [])) if precomputed else ()
+    _pc_len   = precomputed.get("series_length", 0)       if precomputed else 0
+    reuse = (order is not None and _pc_order == order and _pc_len == len(series))
 
-    yield {"type": "progress", "step": "Running ADF stationarity test…", "pct": 10}
-    stat = check_stationarity(train)
-    stat_label = "stationary" if stat["is_stationary"] else "non-stationary"
-    yield {"type": "progress", "step": f"ADF p={stat['p_value']} ({stat_label})", "pct": 22}
+    if reuse:
+        stat       = precomputed["stationarity"]
+        metrics    = precomputed["metrics"]
+        train_data = precomputed["train"]
+        test_data  = precomputed["test"]
+        stat_label = "stationary" if stat["is_stationary"] else "non-stationary"
+        yield {"type": "progress",
+               "step": f"ADF p={stat['p_value']} ({stat_label}) [cached]", "pct": 22}
+        yield {"type": "progress",
+               "step": f"ARIMA{order} — using pre-computed train/test results", "pct": 54}
+        yield {"type": "progress",
+               "step": f"RMSE={metrics['RMSE']}  MASE={metrics.get('MASE','—')} [cached]",
+               "pct": 82}
+    else:
+        train, test = train_test_split_ts(series)
+        yield {"type": "progress", "step": "Running ADF stationarity test…", "pct": 10}
+        stat = check_stationarity(train)
+        stat_label = "stationary" if stat["is_stationary"] else "non-stationary"
+        yield {"type": "progress",
+               "step": f"ADF p={stat['p_value']} ({stat_label})", "pct": 22}
 
-    if order is None:
-        yield {"type": "progress", "step": "Selecting best ARIMA order via BIC grid search…", "pct": 38}
-        order = select_order(train)
+        if order is None:
+            yield {"type": "progress",
+                   "step": "Selecting best ARIMA order via BIC grid search…", "pct": 38}
+            order = select_order(train)
 
-    yield {"type": "progress", "step": f"Fitting ARIMA{order} on training data…", "pct": 54}
-    try:
-        fitted = fit_arima(train, order)
-    except Exception as exc:
-        yield {"type": "error", "message": f"ARIMA fit failed: {exc}"}
-        return
+        yield {"type": "progress",
+               "step": f"Fitting ARIMA{order} on training data…", "pct": 54}
+        try:
+            fitted = fit_arima(train, order)
+        except Exception as exc:
+            yield {"type": "error", "message": f"ARIMA fit failed: {exc}"}
+            return
 
-    yield {"type": "progress", "step": "Evaluating on held-out 24-month test period…", "pct": 68}
-    test_pred, _, _ = _extract_forecast(fitted.get_forecast(steps=len(test)))
-    metrics = evaluate_forecast(test, test_pred, train=train)
-    yield {"type": "progress",
-           "step": f"RMSE={metrics['RMSE']}  MASE={metrics.get('MASE', '—')}", "pct": 82}
+        yield {"type": "progress",
+               "step": "Evaluating on held-out 24-month test period…", "pct": 68}
+        test_pred, _, _ = _extract_forecast(fitted.get_forecast(steps=len(test)))
+        metrics = evaluate_forecast(test, test_pred, train=train)
+        yield {"type": "progress",
+               "step": f"RMSE={metrics['RMSE']}  MASE={metrics.get('MASE', '—')}", "pct": 82}
 
-    yield {"type": "progress", "step": f"Refitting on full series → forecasting {horizon} months…", "pct": 93}
-    final_model = fit_arima(series, order)
+        train_data = {"dates":  [str(d.date()) for d in train.index],
+                      "values": [float(v) for v in train.values]}
+        test_data  = {"dates":     [str(d.date()) for d in test.index],
+                      "actual":    [float(v) for v in test.values],
+                      "predicted": [float(v) for v in test_pred]}
+
+    # Try loading the pre-fitted full-series model to skip the expensive refit.
+    final_model = None
+    _fitted_path = os.path.join(MODELS_DIR, "arima_fitted.pkl")
+    if reuse and os.path.exists(_fitted_path):
+        try:
+            from statsmodels.tsa.arima.model import ARIMAResults
+            final_model = ARIMAResults.load(_fitted_path)
+            yield {"type": "progress",
+                   "step": f"Loaded pre-fitted model → forecasting {horizon} months…", "pct": 93}
+        except Exception:
+            final_model = None
+
+    if final_model is None:
+        yield {"type": "progress",
+               "step": f"Refitting on full series → forecasting {horizon} months…", "pct": 93}
+        final_model = fit_arima(series, order)
+
     future_pred, future_lower, future_upper = _extract_forecast(
         final_model.get_forecast(steps=horizon)
     )
@@ -312,15 +359,8 @@ def run_live(inflation_df: pd.DataFrame, horizon: int = FORECAST_HORIZON, order:
         "type": "result",
         "pct": 100,
         "data": {
-            "train": {
-                "dates": [str(d.date()) for d in train.index],
-                "values": [float(v) for v in train.values],
-            },
-            "test": {
-                "dates":     [str(d.date()) for d in test.index],
-                "actual":    [float(v) for v in test.values],
-                "predicted": [float(v) for v in test_pred],
-            },
+            "train": train_data,
+            "test":  test_data,
             "forecast": {
                 "dates":  [str(d.date()) for d in future_dates],
                 "values": [float(v) for v in future_pred],
@@ -489,6 +529,11 @@ def run_all(inflation_df: pd.DataFrame = None, fuelprice_df: pd.DataFrame = None
           f"(ARIMA MASE<1 means it beats this baseline)")
 
     final_model = fit_arima(series, order)
+    # Save the fitted model so run_live can skip the expensive refit.
+    try:
+        final_model.save(os.path.join(MODELS_DIR, "arima_fitted.pkl"))
+    except Exception:
+        pass
     future_pred, future_lower, future_upper = _extract_forecast(
         final_model.get_forecast(steps=FORECAST_HORIZON)
     )
