@@ -38,6 +38,8 @@ cpi_inf_raw = pd.read_csv(os.path.join(PROC, "cpi_inflation_clean.csv"))
 
 ts_row     = ts_metrics.iloc[0]
 metrics    = ar["metrics"]
+baseline   = ar.get("baseline", {}).get("metrics", {})
+exog_exp   = ar.get("fuel_exog_experiment", {})
 best_k     = clu["best_k"]
 km_scores  = clu["kmeans"]["scores"]
 hc_scores  = clu["hierarchical"]["scores"]
@@ -254,18 +256,22 @@ para(
     "fixed at 42) that regenerates every figure and metric in this report. The key outcomes were:"
 )
 bullets([
-    ("Reliable inflation forecasts. ",
-     f"ARIMA({arima_ord[0]},{arima_ord[1]},{arima_ord[2]}) achieved a test MAPE of "
-     f"{metrics['MAPE']:.2f}% and RMSE of {metrics['RMSE']:.4f} on the held-out test set, "
-     f"forecasting overall CPI inflation in the range "
-     f"{min(fc_vals):.2f}%–{max(fc_vals):.2f}% over the next {ar['horizon']} months."),
+    ("Inflation forecasts with a candid accuracy assessment. ",
+     f"ARIMA({arima_ord[0]},{arima_ord[1]},{arima_ord[2]}) forecasts overall CPI inflation in the range "
+     f"{min(fc_vals):.2f}%–{max(fc_vals):.2f}% over the next {ar['horizon']} months "
+     f"(test RMSE = {metrics['RMSE']:.4f}, sMAPE = {metrics.get('sMAPE', float('nan')):.2f}%). "
+     f"Measured by MASE = {metrics.get('MASE', float('nan')):.2f} (>1), the model does not beat a naive "
+     f"random-walk baseline (RMSE = {baseline.get('RMSE', float('nan')):.4f}) over this 24-month block "
+     "horizon — an expected limitation of a mean-reverting stationary model at long horizons, reported "
+     "honestly rather than masked by a percentage error."),
     (f"Two robust state clusters (k = {best_k}). ",
      f"K-Means and hierarchical clustering independently identified {best_k} state economic tiers "
      f"(K-Means silhouette = {km_scores['silhouette']:.4f}), separating higher-income, "
      "faster-growing CPI states from lower-income, more stable-CPI states."),
-    ("Fuel-price pass-through confirmed. ",
-     "Contemporaneous correlation between average fuel price and CPI inflation is positive and "
-     "statistically significant; the lag-1 correlation (fuel leads inflation by one month) is slightly weaker."),
+    ("Fuel correlates with inflation but does not improve its forecast. ",
+     "Average fuel price is positively and significantly correlated with CPI inflation, yet adding it as "
+     "an exogenous regressor (ARIMAX) did not reduce test error versus the univariate model — evidence "
+     "that the association is not exploitable for short-horizon prediction in this specification."),
     ("Official validation. ",
      "State-level income figures reconcile exactly with DOSM's published 2022 HIES results, "
      "and the CPI trend direction agrees with official DOSM releases."),
@@ -440,28 +446,38 @@ h2("Evaluation of AI model")
 
 h3("3.4.1  Forecast accuracy")
 para(
-    "Forecast accuracy was measured on the held-out test set using MAE, RMSE, and MAPE."
+    "Forecast accuracy was measured on the held-out test set using MAE, RMSE, sMAPE and MASE. "
+    "Plain MAPE is deliberately avoided: year-on-year inflation crosses zero, which makes percentage "
+    "error undefined and unstable. sMAPE is bounded and symmetric, while MASE scales the error against "
+    "a naive random-walk baseline (MASE < 1 beats the baseline; MASE > 1 is worse than it)."
 )
 table(
-    "ARIMA test-set evaluation metrics.",
-    ["Series", "ARIMA Order", "MAE", "RMSE", "MAPE (%)", "AIC", "BIC"],
+    "ARIMA test-set evaluation metrics (with naive baseline for reference).",
+    ["Series", "ARIMA Order", "MAE", "RMSE", "sMAPE (%)", "MASE", "Baseline RMSE", "AIC", "BIC"],
     [[
         ts_row["Series"],
         ts_row["ARIMA Order"],
         f"{metrics['MAE']:.4f}",
         f"{metrics['RMSE']:.4f}",
-        f"{metrics['MAPE']:.2f}",
+        f"{metrics.get('sMAPE', float('nan')):.2f}",
+        f"{metrics.get('MASE', float('nan')):.4f}",
+        f"{baseline.get('RMSE', float('nan')):.4f}",
         ar["aic"],
         ar["bic"],
     ]],
-    col_widths=[2.3, 1.2, 0.8, 0.8, 0.9, 0.8, 0.8],
+    col_widths=[1.9, 1.0, 0.7, 0.7, 0.8, 0.7, 0.9, 0.7, 0.7],
 )
 para(
-    f"A MAPE of {metrics['MAPE']:.2f}% means the model's point forecasts deviate by that "
-    "percentage on average from the actual observed inflation rate during the test period. "
     f"The model forecasts overall CPI inflation in the range "
-    f"{min(fc_vals):.2f}%–{max(fc_vals):.2f}% over the next {ar['horizon']} months, "
-    "consistent with recent DOSM releases showing inflation moderating after the 2022 peak."
+    f"{min(fc_vals):.2f}%–{max(fc_vals):.2f}% over the next {ar['horizon']} months. "
+    f"However, with MASE = {metrics.get('MASE', float('nan')):.2f} (>1), the ARIMA model does not "
+    f"outperform a naive random-walk baseline (RMSE {metrics['RMSE']:.4f} vs "
+    f"{baseline.get('RMSE', float('nan')):.4f}) when forecasting the full 24-month block at once. "
+    "This is an expected and honestly reported limitation: a stationary mean-reverting model collapses "
+    "toward the series mean over long horizons, so a persistence baseline is hard to beat on a multi-step "
+    "block. The model remains useful for characterising trend direction and uncertainty rather than for "
+    "precise long-horizon point forecasts; a rolling one-step-ahead evaluation would be the appropriate "
+    "test of short-horizon skill and is identified as future work."
 )
 
 h3("3.4.2  Clustering validity")
@@ -566,12 +582,15 @@ bullets([
 # =============================================================================
 h1("Conclusions")
 para(
-    f"ARIMA({arima_ord[0]},{arima_ord[1]},{arima_ord[2]}) achieved a test MAPE of "
-    f"{metrics['MAPE']:.2f}% on Malaysia's national CPI inflation series, confirming that a "
-    "parsimonious linear model provides reliable short-to-medium term inflation forecasting from "
-    "this data. The BIC-selected order avoided over-fitting the moderately long monthly series, "
-    f"and the {ar['horizon']}-month forecast is consistent with the moderating trend observed "
-    "in recent DOSM releases."
+    f"A BIC-selected ARIMA({arima_ord[0]},{arima_ord[1]},{arima_ord[2]}) was fitted to Malaysia's "
+    f"national CPI inflation series (test RMSE = {metrics['RMSE']:.4f}, "
+    f"sMAPE = {metrics.get('sMAPE', float('nan')):.2f}%). A rigorous MASE assessment "
+    f"({metrics.get('MASE', float('nan')):.2f}) shows the model does not surpass a naive baseline over "
+    f"the full {ar['horizon']}-month block — a genuine limitation of long-horizon point forecasting with "
+    "a stationary model, which we report transparently rather than obscure. The parsimonious BIC order "
+    "still avoids over-fitting and yields a forecast consistent with the moderating trend in recent DOSM "
+    "releases; its value lies in characterising trend and uncertainty, with rolling one-step evaluation "
+    "recommended for assessing short-horizon skill."
 )
 para(
     f"Clustering identified k = {best_k} interpretable state tiers (K-Means silhouette = "

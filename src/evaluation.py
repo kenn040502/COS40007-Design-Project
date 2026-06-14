@@ -27,6 +27,7 @@ def ts_metrics_table(arima_result: dict) -> pd.DataFrame:
     m = arima_result["metrics"]
     order = arima_result["arima_order"]
     forecast_vals = arima_result["forecast"]["values"]
+    baseline = arima_result.get("baseline", {}).get("metrics", {})
     rows = [{
         "Series": "Overall CPI Inflation (YoY)",
         "ARIMA Order": f"({order[0]},{order[1]},{order[2]})",
@@ -34,7 +35,9 @@ def ts_metrics_table(arima_result: dict) -> pd.DataFrame:
         "BIC": arima_result.get("bic", None),
         "MAE": m["MAE"],
         "RMSE": m["RMSE"],
-        "MAPE (%)": m["MAPE"],
+        "sMAPE (%)": m.get("sMAPE"),
+        "MASE": m.get("MASE"),
+        "Baseline RMSE (naive)": baseline.get("RMSE"),
         "Stationary (train)": arima_result["stationarity"]["is_stationary"],
         "Forecast End (avg %)": round(np.mean(forecast_vals[-6:]), 2),
     }]
@@ -226,7 +229,7 @@ def run_all(arima_results: dict = None, clustering_results: dict = None,
 
     # Time series metrics
     ts_df = ts_metrics_table(arima_results)
-    print(f"  TS metrics saved — MAPE={ts_df['MAPE (%)'].iloc[0]}%")
+    print(f"  TS metrics saved — RMSE={ts_df['RMSE'].iloc[0]} MASE={ts_df['MASE'].iloc[0]}")
 
     # Fuel correlation plot (if available)
     fuel_corr_path = os.path.join(MODELS_DIR, "fuel_correlation.json")

@@ -57,6 +57,9 @@
     /* ── Grids ── */
     .grid-2 { display: grid; grid-template-columns: 1fr 1fr; gap: 20px; }
     .grid-4 { display: grid; grid-template-columns: repeat(4, 1fr); gap: 14px; margin-top: 16px; }
+    /* Let grid items shrink to their track instead of being forced wide by a
+       chart's default render width (otherwise charts overflow to the right). */
+    .grid-2 > *, .grid-4 > * { min-width: 0; }
 
     /* ── Stat boxes ── */
     .stat-box {
@@ -80,7 +83,7 @@
     .img-full { width: 100%; border-radius: 8px; display: block; margin: 0 auto; }
 
     /* ── Fullscreen ── */
-    .chart-wrap { position: relative; width: 100%; }
+    .chart-wrap { position: relative; width: 100%; overflow: hidden; }
     .fullscreen-btn {
       position: absolute; top: 6px; right: 6px; z-index: 10;
       background: rgba(255,255,255,0.92); border: 1px solid var(--border);
@@ -179,10 +182,12 @@
     #pipeline-log .ok  { color: #4ade80; }
     #pipeline-log .err { color: #f87171; }
     #pipeline-status { margin-top: 12px; font-size: 0.85rem; color: var(--muted); }
-    #pipeline-close {
+    #pipeline-close, #pipeline-cancel {
       margin-top: 14px; padding: 8px 18px; border: 1px solid var(--border);
       border-radius: 6px; background: #fff; cursor: pointer; font-size: 0.85rem;
     }
+    #pipeline-cancel { margin-right: 8px; border-color: #ef4444; color: #ef4444; }
+    #pipeline-cancel:disabled { opacity: 0.5; cursor: default; }
 
     /* ── State detail panel ── */
     #state-detail-panel {
@@ -257,6 +262,7 @@
     <h3>Running Analysis Pipeline</h3>
     <div id="pipeline-log"></div>
     <div id="pipeline-status">Starting…</div>
+    <button id="pipeline-cancel" onclick="cancelPipeline()">Cancel run</button>
     <button id="pipeline-close" onclick="closeRunModal()" disabled>Close</button>
   </div>
 </div>
@@ -380,7 +386,8 @@
         <thead>
           <tr>
             <th>Series</th><th>ARIMA Order</th><th>AIC</th><th>BIC</th>
-            <th>MAE</th><th>RMSE</th><th>MAPE (%)</th><th>Stationary</th><th>Forecast End</th>
+            <th>MAE</th><th>RMSE</th><th>sMAPE (%)</th><th>MASE</th>
+            <th>Baseline RMSE</th><th>Stationary</th><th>Forecast End</th>
           </tr>
         </thead>
         <tbody></tbody>
@@ -448,14 +455,14 @@
       <h2>Elbow + Silhouette Method</h2>
       <div class="chart-wrap">
         <button class="fullscreen-btn" onclick="toggleFullscreen(this)">⛶</button>
-        <img class="img-full" src="/figure/cluster_elbow_silhouette.png" alt="Elbow and Silhouette curves" />
+        <div id="chart-cluster-elbow" style="height:380px;"></div>
       </div>
     </div>
     <div class="card">
       <h2>K-Means — PCA Projection</h2>
       <div class="chart-wrap">
         <button class="fullscreen-btn" onclick="toggleFullscreen(this)">⛶</button>
-        <img class="img-full" src="/figure/cluster_pca_kmeans.png" alt="K-Means PCA scatter" />
+        <div id="chart-cluster-pca" style="height:380px;"></div>
       </div>
     </div>
   </div>
@@ -465,14 +472,14 @@
       <h2>Hierarchical — PCA Projection</h2>
       <div class="chart-wrap">
         <button class="fullscreen-btn" onclick="toggleFullscreen(this)">⛶</button>
-        <img class="img-full" src="/figure/cluster_pca_hierarchical.png" alt="Hierarchical PCA scatter" />
+        <div id="chart-cluster-pca-hc" style="height:380px;"></div>
       </div>
     </div>
     <div class="card">
       <h2>Cluster Socioeconomic Profiles</h2>
       <div class="chart-wrap">
         <button class="fullscreen-btn" onclick="toggleFullscreen(this)">⛶</button>
-        <img class="img-full" src="/figure/cluster_profiles.png" alt="Cluster radar profiles" />
+        <div id="chart-cluster-profiles" style="height:380px;"></div>
       </div>
     </div>
   </div>
@@ -481,7 +488,7 @@
     <h2>Hierarchical Clustering — Dendrogram</h2>
     <div class="chart-wrap">
       <button class="fullscreen-btn" onclick="toggleFullscreen(this)">⛶</button>
-      <img class="img-full" src="/figure/cluster_dendrogram.png" alt="Ward linkage dendrogram" />
+      <div id="chart-cluster-dendrogram" style="height:420px;"></div>
     </div>
   </div>
 
@@ -516,6 +523,22 @@
     </div>
   </div>
 
+  <div class="card">
+    <h2>Does Fuel Improve Inflation Prediction? (ARIMAX vs ARIMA)</h2>
+    <p class="desc">
+      Correlation shows association; this tests <strong>predictive value</strong>. Two models are
+      fit on the fuel/CPI overlap window and evaluated on the same held-out test period:
+      <strong>ARIMAX</strong> (fuel as an exogenous regressor) vs a univariate <strong>ARIMA</strong>.
+      A lower RMSE for ARIMAX means fuel adds genuine forecasting signal. The headline national
+      forecast stays univariate because future fuel prices are unknown.
+    </p>
+    <div id="fuel-exog-meta" class="metric-row"></div>
+    <div class="chart-wrap">
+      <button class="fullscreen-btn" onclick="toggleFullscreen(this)">⛶</button>
+      <div id="chart-fuel-exog" style="height:340px;"></div>
+    </div>
+  </div>
+
 </div><!-- /tab-fuel -->
 
 </main>
@@ -537,8 +560,16 @@ const PALETTE = [
 function showTab(id, btn) {
   document.querySelectorAll('.tab-panel').forEach(p => p.classList.remove('active'));
   document.querySelectorAll('nav button').forEach(b => b.classList.remove('active'));
-  document.getElementById('tab-' + id).classList.add('active');
+  const panel = document.getElementById('tab-' + id);
+  panel.classList.add('active');
   btn.classList.add('active');
+  // Charts rendered while a tab was hidden can't measure their container width
+  // and end up too wide. Re-measure them now that the tab is visible.
+  requestAnimationFrame(() => {
+    panel.querySelectorAll('[id^="chart-"]').forEach(d => {
+      try { Plotly.Plots.resize(d); } catch (_) {}
+    });
+  });
 }
 
 // ─── Overview: national inflation ────────────────────────────────────────────
@@ -740,7 +771,8 @@ function updateForecastMetrics(d) {
   document.getElementById('ts-metrics').innerHTML = `
     <div class="metric-chip">MAE <strong>${m.MAE ?? '—'}</strong></div>
     <div class="metric-chip">RMSE <strong>${m.RMSE ?? '—'}</strong></div>
-    <div class="metric-chip">MAPE <strong>${m.MAPE != null ? m.MAPE + '%' : '—'}</strong></div>
+    <div class="metric-chip">sMAPE <strong>${m.sMAPE != null ? m.sMAPE + '%' : '—'}</strong></div>
+    <div class="metric-chip">MASE <strong>${m.MASE ?? '—'}</strong></div>
     <div class="metric-chip">AIC <strong>${d.aic ?? '—'}</strong></div>
     <div class="metric-chip">BIC <strong>${d.bic ?? '—'}</strong></div>
     <div class="metric-chip">ADF p-value <strong>${s.p_value ?? '—'}</strong></div>
@@ -810,7 +842,9 @@ async function loadTsMetricsTable() {
       <td>${r['BIC'] ?? '—'}</td>
       <td>${r['MAE'] ?? '—'}</td>
       <td>${r['RMSE'] ?? '—'}</td>
-      <td>${r['MAPE (%)'] ?? '—'}</td>
+      <td>${r['sMAPE (%)'] ?? '—'}</td>
+      <td>${r['MASE'] ?? '—'}</td>
+      <td>${r['Baseline RMSE (naive)'] ?? '—'}</td>
       <td>${r['Stationary (train)'] ?? '—'}</td>
       <td>${r['Forecast End (avg %)'] ?? '—'}</td>
     </tr>
@@ -860,6 +894,164 @@ async function loadClusterChart() {
     const stateName = e.points[0]?.customdata;
     if (stateName) showStateDetail(stateName);
   });
+
+  renderPCAScatter('chart-cluster-pca', _clusterData, 'K-Means Clusters — PCA Projection');
+  renderClusterProfiles(_clusterData);
+}
+
+// Interactive PCA projection (replaces a static PNG). Reused for K-Means and
+// Hierarchical — same point coordinates, coloured by each method's clusters.
+let _pcaVariance = [];
+function renderPCAScatter(divId, data, title) {
+  if (!data.length || data[0].pc1 == null) return;
+  const labels = [...new Set(data.map(d => d.cluster_label))].sort();
+  const traces = labels.map((lbl, i) => {
+    const pts = data.filter(d => d.cluster_label === lbl);
+    return {
+      name: lbl, type: 'scatter', mode: 'markers+text',
+      x: pts.map(d => d.pc1), y: pts.map(d => d.pc2),
+      text: pts.map(d => d.state), textposition: 'top center',
+      textfont: { size: 9 },
+      marker: { size: 14, color: PALETTE[i % PALETTE.length], opacity: 0.85,
+                line: { color: '#fff', width: 1 } },
+    };
+  });
+  const vx = _pcaVariance[0] != null ? ' (' + (_pcaVariance[0] * 100).toFixed(1) + '% var)' : '';
+  const vy = _pcaVariance[1] != null ? ' (' + (_pcaVariance[1] * 100).toFixed(1) + '% var)' : '';
+  Plotly.newPlot(divId, traces, {
+    title: { text: title, font: { size: 13 } },
+    xaxis: { title: 'PC1' + vx }, yaxis: { title: 'PC2' + vy },
+    legend: { orientation: 'h', y: -0.22 },
+    margin: { t: 48, r: 20, b: 70 },
+  }, { responsive: true });
+}
+
+// Interactive hierarchical dendrogram (replaces a static PNG). Each "U" link
+// is drawn as a line; hover shows the merge distance (cluster dissimilarity).
+function _dendroColor(c) {
+  const m = { b: '#1a3c6e', g: '#22c55e', r: '#e8523a', c: '#06b6d4',
+              m: '#a855f7', y: '#f59e0b', k: '#374151' };
+  if (c && m[c]) return m[c];
+  if (c && /^C\d+$/.test(c)) return PALETTE[parseInt(c.slice(1), 10) % PALETTE.length];
+  if (c && c.startsWith('#')) return c;
+  return '#1a3c6e';
+}
+async function loadClusterDendrogram() {
+  const res = await fetch('/api/cluster/dendrogram');
+  if (!res.ok) return;
+  const d = await res.json();
+  const ic = d.icoord || [], dc = d.dcoord || [], ivl = d.ivl || [], colors = d.color_list || [];
+  if (!ic.length) return;
+
+  const traces = ic.map((xs, i) => {
+    const ys = dc[i];
+    const dist = Math.max(...ys);
+    return {
+      x: xs, y: ys, type: 'scatter', mode: 'lines',
+      line: { color: _dendroColor(colors[i]), width: 1.8 },
+      hovertemplate: 'Merge distance: ' + dist.toFixed(2) + '<extra></extra>',
+      showlegend: false,
+    };
+  });
+
+  // scipy places leaves at x = 5, 15, 25, … (one per state)
+  const tickvals = ivl.map((_, i) => 10 * i + 5);
+  Plotly.newPlot('chart-cluster-dendrogram', traces, {
+    title: { text: 'Ward-linkage dendrogram — states merge bottom-up by similarity', font: { size: 12 } },
+    xaxis: { tickvals, ticktext: ivl, tickangle: -40, title: 'State', automargin: true },
+    yaxis: { title: 'Distance (Ward)', zeroline: false },
+    margin: { t: 44, r: 20, b: 90 },
+    hovermode: 'closest',
+  }, { responsive: true });
+}
+
+// Hierarchical PCA projection — fetches the hierarchical assignment.
+async function loadClusterHierarchical() {
+  const res = await fetch('/api/cluster/states?method=hierarchical');
+  if (!res.ok) return;
+  const data = await res.json();
+  renderPCAScatter('chart-cluster-pca-hc', data, 'Hierarchical Clusters — PCA Projection');
+}
+
+// Cluster socioeconomic profile heatmap (rows = clusters, cols = features),
+// colour normalised per feature, cells annotated with the real averages.
+const PROFILE_FEATURES = [
+  { key: 'mean_cpi_index',       label: 'Mean CPI' },
+  { key: 'cpi_growth_rate',      label: 'CPI Growth %' },
+  { key: 'cpi_volatility',       label: 'CPI Volatility' },
+  { key: 'income_mean_latest',   label: 'Mean Income' },
+  { key: 'income_median_latest', label: 'Median Income' },
+];
+function renderClusterProfiles(data) {
+  if (!data.length) return;
+  const labels = [...new Set(data.map(d => d.cluster_label))].sort();
+  const mean = (rows, key) => rows.reduce((s, d) => s + d[key], 0) / rows.length;
+
+  const raw = labels.map(lbl => {
+    const rows = data.filter(d => d.cluster_label === lbl);
+    return PROFILE_FEATURES.map(f => mean(rows, f.key));
+  });
+  // Normalise each column (feature) to 0..1 for colour only.
+  const z = raw.map(r => r.slice());
+  PROFILE_FEATURES.forEach((f, c) => {
+    const col = raw.map(r => r[c]);
+    const mn = Math.min(...col), mx = Math.max(...col);
+    raw.forEach((r, i) => { z[i][c] = (mx - mn) ? (r[c] - mn) / (mx - mn) : 0.5; });
+  });
+  const annot = raw.map(r => r.map(v =>
+    v >= 1000 ? v.toFixed(0) : v.toFixed(2)));
+
+  Plotly.newPlot('chart-cluster-profiles', [{
+    type: 'heatmap',
+    x: PROFILE_FEATURES.map(f => f.label),
+    y: labels,
+    z: z,
+    text: annot, texttemplate: '%{text}',
+    textfont: { size: 11 },
+    colorscale: 'RdYlGn', showscale: true,
+    colorbar: { title: 'Relative', titleside: 'right' },
+    hovertemplate: '%{y}<br>%{x}: %{text}<extra></extra>',
+  }], {
+    title: { text: 'Feature Averages per Cluster (colour = relative)', font: { size: 12 } },
+    margin: { t: 44, r: 20, b: 70, l: 150 },
+    xaxis: { tickangle: -20 },
+  }, { responsive: true });
+}
+
+// Elbow / silhouette / Davies-Bouldin curves used to pick k (replaces a PNG).
+async function loadClusterElbow() {
+  const res = await fetch('/api/cluster/elbow');
+  if (!res.ok) return;
+  const d = await res.json();
+  _pcaVariance = d.pca_variance || [];
+  const m = d.elbow_metrics || {};
+  const k = m.k_range || [];
+  if (!k.length) return;
+  const bestK = d.best_k;
+
+  Plotly.newPlot('chart-cluster-elbow', [
+    { name: 'Silhouette (↑ better)', type: 'scatter', mode: 'lines+markers',
+      x: k, y: m.silhouettes, yaxis: 'y',
+      line: { color: '#22c55e', width: 2 }, marker: { size: 7 } },
+    { name: 'Davies-Bouldin (↓ better)', type: 'scatter', mode: 'lines+markers',
+      x: k, y: m.db_scores, yaxis: 'y',
+      line: { color: '#e8523a', width: 2 }, marker: { size: 7 } },
+    { name: 'Inertia / WCSS (elbow)', type: 'scatter', mode: 'lines+markers',
+      x: k, y: m.inertias, yaxis: 'y2',
+      line: { color: '#1a3c6e', width: 2, dash: 'dot' }, marker: { size: 7 } },
+  ], {
+    title: { text: 'Optimal k Selection', font: { size: 13 } },
+    xaxis: { title: 'Number of clusters (k)', dtick: 1 },
+    yaxis: { title: 'Silhouette / Davies-Bouldin' },
+    yaxis2: { title: 'Inertia (WCSS)', overlaying: 'y', side: 'right', showgrid: false },
+    shapes: bestK ? [{ type: 'line', x0: bestK, x1: bestK, yref: 'paper', y0: 0, y1: 1,
+                       line: { color: '#9ca3af', dash: 'dot', width: 1.5 } }] : [],
+    annotations: bestK ? [{ x: bestK, y: 1, yref: 'paper', xanchor: 'left',
+                            text: 'best k=' + bestK, showarrow: false,
+                            font: { size: 10, color: '#6b7280' } }] : [],
+    legend: { orientation: 'h', y: -0.25 },
+    margin: { t: 48, r: 55, b: 70 },
+  }, { responsive: true });
 }
 
 function showStateDetail(stateName) {
@@ -1020,12 +1212,49 @@ async function loadFuelCorrelation() {
   }, { responsive: true });
 }
 
+async function loadFuelExog() {
+  const res = await fetch('/api/fuel/exog');
+  const meta = document.getElementById('fuel-exog-meta');
+  if (!res.ok) {
+    meta.innerHTML = '<div class="metric-chip">ARIMAX experiment <strong>not available</strong></div>';
+    return;
+  }
+  const d = await res.json();
+  if (!d.available) {
+    meta.innerHTML = `<div class="metric-chip">ARIMAX experiment <strong>unavailable</strong> — ${d.reason ?? ''}</div>`;
+    return;
+  }
+  const ax = d.arimax_metrics || {}, ar = d.arima_metrics || {};
+  const gain = d.rmse_improvement_pct;
+  const gainCls = gain >= 0 ? 'dc-up' : 'dc-down';
+  const coef = (d.exog_coefficients && d.exog_coefficients.avg_fuel) || {};
+  meta.innerHTML = `
+    <div class="metric-chip">Overlap <strong>${d.overlap_start} → ${d.overlap_end}</strong></div>
+    <div class="metric-chip">RMSE change from fuel <strong class="${gainCls}">${gain >= 0 ? '+' : ''}${gain}%</strong></div>
+    <div class="metric-chip">avg_fuel coef <strong>${coef.coef ?? '—'}</strong> (p=${coef.pvalue ?? '—'})</div>
+  `;
+
+  Plotly.newPlot('chart-fuel-exog', [
+    { name: 'ARIMAX (with fuel)', type: 'bar', x: ['RMSE', 'MAE', 'MASE'],
+      y: [ax.RMSE, ax.MAE, ax.MASE], marker: { color: '#1a3c6e' },
+      text: [ax.RMSE, ax.MAE, ax.MASE], textposition: 'auto' },
+    { name: 'ARIMA (univariate)', type: 'bar', x: ['RMSE', 'MAE', 'MASE'],
+      y: [ar.RMSE, ar.MAE, ar.MASE], marker: { color: '#e8523a', opacity: 0.8 },
+      text: [ar.RMSE, ar.MAE, ar.MASE], textposition: 'auto' },
+  ], {
+    title: { text: 'Test-set error: fuel-augmented vs univariate (lower = better)', font: { size: 12 } },
+    yaxis: { title: 'Error' }, barmode: 'group',
+    legend: { orientation: 'h', y: -0.2 }, margin: { t: 44, r: 20, b: 60 },
+  }, { responsive: true });
+}
+
 // ─── Pipeline modal ───────────────────────────────────────────────────────────
 function openRunModal() {
   document.getElementById('pipeline-modal').classList.add('open');
   document.getElementById('pipeline-log').innerHTML = '';
   document.getElementById('pipeline-status').textContent = 'Starting…';
   document.getElementById('pipeline-close').disabled = true;
+  document.getElementById('pipeline-cancel').disabled = false;
   document.getElementById('run-btn').disabled = true;
 
   const log = document.getElementById('pipeline-log');
@@ -1041,6 +1270,7 @@ function openRunModal() {
     if (!res.ok) {
       res.json().then(d => append('ERROR: ' + (d.error || res.status), 'err'));
       document.getElementById('pipeline-close').disabled = false;
+      document.getElementById('pipeline-cancel').disabled = true;
       document.getElementById('run-btn').disabled = false;
       return;
     }
@@ -1061,6 +1291,7 @@ function openRunModal() {
             document.getElementById('pipeline-status').textContent =
               ok ? '✅ Pipeline complete — reloading…' : '❌ Pipeline failed (see log above)';
             document.getElementById('pipeline-close').disabled = false;
+      document.getElementById('pipeline-cancel').disabled = true;
             document.getElementById('run-btn').disabled = false;
             if (ok) setTimeout(() => location.reload(), 1500);
           } else if (part.startsWith('data: ')) {
@@ -1080,6 +1311,12 @@ function openRunModal() {
     document.getElementById('pipeline-close').disabled = false;
     document.getElementById('run-btn').disabled = false;
   });
+}
+
+function cancelPipeline() {
+  document.getElementById('pipeline-cancel').disabled = true;
+  document.getElementById('pipeline-status').textContent = 'Cancelling…';
+  fetch('/api/run/cancel', { method: 'POST' }).catch(() => {});
 }
 
 function closeRunModal() {
@@ -1132,12 +1369,16 @@ document.addEventListener('fullscreenchange', () => {
   try { await loadTsMetricsTable(); }      catch (_) {}
 
   // Clustering
+  try { await loadClusterElbow(); }        catch (_) {}
   try { await loadClusterChart(); }        catch (_) {}
+  try { await loadClusterHierarchical(); } catch (_) {}
+  try { await loadClusterDendrogram(); }   catch (_) {}
   try { await loadClusterMetrics(); }      catch (_) {}
 
   // Fuel
   try { await loadFuelPrices(); }          catch (_) {}
   try { await loadFuelCorrelation(); }     catch (_) {}
+  try { await loadFuelExog(); }            catch (_) {}
 })();
 </script>
 </body>

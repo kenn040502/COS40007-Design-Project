@@ -19,6 +19,7 @@ matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 import matplotlib.dates as mdates
 from statsmodels.tsa.arima.model import ARIMA
+from statsmodels.tsa.statespace.sarimax import SARIMAX
 from statsmodels.tsa.stattools import adfuller
 from sklearn.metrics import mean_absolute_error, mean_squared_error
 
@@ -84,11 +85,57 @@ def train_test_split_ts(series: pd.Series, test_n: int = TEST_MONTHS):
     return series.iloc[:-test_n], series.iloc[-test_n:]
 
 
-def evaluate_forecast(actual: pd.Series, predicted: np.ndarray) -> dict:
+def _smape(actual, predicted) -> float:
+    """
+    Symmetric MAPE (%). Unlike plain MAPE it does not blow up when the actual
+    value is near zero, which is critical here because YoY inflation regularly
+    crosses 0. Bounded in [0, 200].
+    """
+    a = np.asarray(actual, dtype=float)
+    p = np.asarray(predicted, dtype=float)
+    denom = np.abs(a) + np.abs(p)
+    mask = denom != 0
+    if not mask.any():
+        return float("nan")
+    return float(np.mean(2.0 * np.abs(a[mask] - p[mask]) / denom[mask]) * 100)
+
+
+def _mase(actual, predicted, train: pd.Series) -> float:
+    """
+    Mean Absolute Scaled Error. Scales the model's test MAE by the in-sample MAE
+    of a one-step naive (random-walk) forecast on the training series:
+        MASE < 1  -> model beats the naive baseline
+        MASE > 1  -> model is worse than naively repeating the last value
+    MASE is scale-free and well-defined when the series crosses zero (as
+    inflation does), which is why it is preferred over MAPE for this target.
+    """
+    naive_mae = np.mean(np.abs(np.diff(np.asarray(train, dtype=float))))
+    if naive_mae == 0 or np.isnan(naive_mae):
+        return float("nan")
+    return float(mean_absolute_error(actual, predicted) / naive_mae)
+
+
+def evaluate_forecast(actual: pd.Series, predicted: np.ndarray, train: pd.Series = None) -> dict:
+    """
+    Compute scale-appropriate error metrics. MAPE is deliberately excluded:
+    inflation YoY crosses zero, making percentage error undefined/unstable.
+    sMAPE and MASE are used instead.
+    """
     mae = mean_absolute_error(actual, predicted)
     rmse = np.sqrt(mean_squared_error(actual, predicted))
-    mape = np.mean(np.abs((actual.values - predicted) / (np.abs(actual.values) + 1e-8))) * 100
-    return {"MAE": round(mae, 4), "RMSE": round(rmse, 4), "MAPE": round(mape, 2)}
+    metrics = {
+        "MAE": round(mae, 4),
+        "RMSE": round(rmse, 4),
+        "sMAPE": round(_smape(actual, predicted), 2),
+    }
+    if train is not None:
+        metrics["MASE"] = round(_mase(actual, predicted, train), 4)
+    return metrics
+
+
+def naive_forecast(train: pd.Series, steps: int) -> np.ndarray:
+    """Random-walk baseline: carry the last observed value forward `steps` times."""
+    return np.repeat(float(train.iloc[-1]), steps)
 
 
 def compute_fuel_correlation(inflation_df: pd.DataFrame, fuelprice_df: pd.DataFrame) -> dict:
@@ -116,6 +163,80 @@ def compute_fuel_correlation(inflation_df: pd.DataFrame, fuelprice_df: pd.DataFr
         "overlap_start": str(merged["date"].min().date()),
         "overlap_end": str(merged["date"].max().date()),
         "merged_data": merged.to_dict(orient="records"),
+    }
+
+
+def compute_fuel_exog_model(inflation_df: pd.DataFrame, fuelprice_df: pd.DataFrame,
+                            exog_cols=("avg_fuel",), test_n: int = TEST_MONTHS) -> dict:
+    """
+    Test whether fuel prices carry *predictive* (not merely correlational) signal
+    for inflation. Two models are fit on the fuel/CPI overlap window and evaluated
+    on the same held-out test period:
+      - ARIMAX : SARIMAX with fuel price as an exogenous regressor
+      - ARIMA  : univariate, same order, no exogenous input
+
+    Because future fuel prices are unknown, this is an *explanatory* experiment on
+    historical overlap — it quantifies how much fuel improves short-horizon
+    inflation prediction. The headline multi-step national forecast stays
+    univariate (it cannot depend on unobserved future fuel prices). This is the
+    honest trade-off: explanatory power vs. operational forecastability.
+    """
+    merged = pd.merge(
+        inflation_df[["date", "inflation_yoy"]],
+        fuelprice_df[["date", *exog_cols]],
+        on="date", how="inner",
+    ).dropna().sort_values("date").reset_index(drop=True)
+
+    if len(merged) < (test_n + 30):
+        return {"available": False,
+                "reason": f"Only {len(merged)} overlapping months "
+                          f"(need >= {test_n + 30})."}
+
+    y = merged["inflation_yoy"].astype(float)
+    X = merged[list(exog_cols)].astype(float)
+    y_train, y_test = y.iloc[:-test_n], y.iloc[-test_n:]
+    X_train, X_test = X.iloc[:-test_n], X.iloc[-test_n:]
+
+    order = select_order(y_train)
+
+    # ARIMAX — fuel as exogenous regressor
+    arimax = SARIMAX(y_train, exog=X_train, order=order,
+                     enforce_stationarity=False, enforce_invertibility=False).fit(disp=False)
+    arimax_pred = np.asarray(
+        arimax.get_forecast(steps=len(y_test), exog=X_test).predicted_mean)
+    arimax_metrics = evaluate_forecast(y_test, arimax_pred, train=y_train)
+
+    # Univariate ARIMA on the identical window/order (fair comparison)
+    arima = ARIMA(y_train.values, order=order).fit()
+    arima_pred, _, _ = _extract_forecast(arima.get_forecast(steps=len(y_test)))
+    arima_metrics = evaluate_forecast(y_test, arima_pred, train=y_train)
+
+    rmse_gain = (
+        (arima_metrics["RMSE"] - arimax_metrics["RMSE"]) / arima_metrics["RMSE"] * 100
+        if arima_metrics["RMSE"] else 0.0
+    )
+
+    # Exogenous coefficient + significance from a full-window refit
+    full = SARIMAX(y, exog=X, order=order,
+                   enforce_stationarity=False, enforce_invertibility=False).fit(disp=False)
+    coefs = {}
+    for col in exog_cols:
+        if col in full.params.index:
+            coefs[col] = {"coef": round(float(full.params[col]), 4),
+                          "pvalue": round(float(full.pvalues[col]), 4)}
+
+    return {
+        "available": True,
+        "order": list(order),
+        "exog_cols": list(exog_cols),
+        "n_overlap_months": int(len(merged)),
+        "overlap_start": str(merged["date"].min().date()),
+        "overlap_end": str(merged["date"].max().date()),
+        "test_months": int(test_n),
+        "arimax_metrics": arimax_metrics,
+        "arima_metrics": arima_metrics,
+        "rmse_improvement_pct": round(float(rmse_gain), 2),
+        "exog_coefficients": coefs,
     }
 
 
@@ -150,9 +271,9 @@ def run_live(inflation_df: pd.DataFrame, horizon: int = FORECAST_HORIZON, order:
 
     yield {"type": "progress", "step": "Evaluating on held-out 24-month test period…", "pct": 68}
     test_pred, _, _ = _extract_forecast(fitted.get_forecast(steps=len(test)))
-    metrics = evaluate_forecast(test, test_pred)
+    metrics = evaluate_forecast(test, test_pred, train=train)
     yield {"type": "progress",
-           "step": f"RMSE={metrics['RMSE']}  MAPE={metrics['MAPE']}%", "pct": 82}
+           "step": f"RMSE={metrics['RMSE']}  MASE={metrics.get('MASE', '—')}", "pct": 82}
 
     yield {"type": "progress", "step": f"Refitting on full series → forecasting {horizon} months…", "pct": 93}
     final_model = fit_arima(series, order)
@@ -242,7 +363,8 @@ def plot_forecast(result: dict, save_path: str = None):
     ax2.plot(pd.to_datetime(result["test"]["dates"]), result["test"]["predicted"],
              "r--o", markersize=4, label="Predicted")
     m = result["metrics"]
-    ax2.set_title(f"Test Period Evaluation (24 months)\nMAE={m['MAE']} | RMSE={m['RMSE']} | MAPE={m['MAPE']}%")
+    ax2.set_title(f"Test Period Evaluation (24 months)\n"
+                  f"MAE={m['MAE']} | RMSE={m['RMSE']} | MASE={m.get('MASE', '—')} | sMAPE={m.get('sMAPE', '—')}%")
     ax2.set_xlabel("Date")
     ax2.set_ylabel("Inflation YoY (%)")
     ax2.axhline(y=0, color="black", linestyle=":", linewidth=0.8, alpha=0.5)
@@ -312,8 +434,16 @@ def run_all(inflation_df: pd.DataFrame = None, fuelprice_df: pd.DataFrame = None
 
     fitted = fit_arima(train, order)
     test_pred, _, _ = _extract_forecast(fitted.get_forecast(steps=len(test)))
-    metrics = evaluate_forecast(test, test_pred)
-    print(f"  Test metrics: MAE={metrics['MAE']} RMSE={metrics['RMSE']} MAPE={metrics['MAPE']}%")
+    metrics = evaluate_forecast(test, test_pred, train=train)
+
+    # Naive random-walk baseline on the same test set — gives ARIMA something
+    # to beat. MASE already encodes this, but an explicit baseline is clearer.
+    baseline_pred = naive_forecast(train, len(test))
+    baseline_metrics = evaluate_forecast(test, baseline_pred, train=train)
+    print(f"  Test metrics: MAE={metrics['MAE']} RMSE={metrics['RMSE']} "
+          f"sMAPE={metrics['sMAPE']}% MASE={metrics.get('MASE')}")
+    print(f"  Naive baseline: RMSE={baseline_metrics['RMSE']} "
+          f"(ARIMA MASE<1 means it beats this baseline)")
 
     final_model = fit_arima(series, order)
     future_pred, future_lower, future_upper = _extract_forecast(
@@ -350,18 +480,26 @@ def run_all(inflation_df: pd.DataFrame = None, fuelprice_df: pd.DataFrame = None
         "horizon": FORECAST_HORIZON,
         "series_length": len(series),
         "test_months": TEST_MONTHS,
+        "baseline": {
+            "method": "naive random-walk (last value carried forward)",
+            "metrics": {k: float(v) for k, v in baseline_metrics.items()},
+        },
     }
 
-    # Fuel price correlation (if available)
+    # Fuel price correlation + ARIMAX exogenous experiment (if available)
     if fuelprice_df is not None:
         print("  Computing fuel price correlation...")
         result["fuel_correlation"] = compute_fuel_correlation(inflation_df, fuelprice_df)
+        print("  Fitting ARIMAX (fuel as exogenous regressor) vs univariate ARIMA...")
+        exog_exp = compute_fuel_exog_model(inflation_df, fuelprice_df)
+        result["fuel_exog_experiment"] = exog_exp
+        if exog_exp.get("available"):
+            print(f"    ARIMAX RMSE={exog_exp['arimax_metrics']['RMSE']} vs "
+                  f"ARIMA RMSE={exog_exp['arima_metrics']['RMSE']} "
+                  f"({exog_exp['rmse_improvement_pct']:+.2f}% from fuel)")
 
-    with open(os.path.join(MODELS_DIR, "arima_results.json"), "w") as f:
-        json.dump({k: v for k, v in result.items() if k != "fuel_correlation"
-                   or not isinstance(v.get("merged_data"), list)}, f, indent=2, default=str)
-
-    # Save full result including merged data separately
+    # Single source of truth: everything except the large correlation scatter
+    # (which is saved to its own file to keep arima_results.json lightweight).
     with open(os.path.join(MODELS_DIR, "arima_results.json"), "w") as f:
         out = {k: v for k, v in result.items() if k != "fuel_correlation"}
         json.dump(out, f, indent=2, default=str)
