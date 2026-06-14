@@ -15,7 +15,6 @@ ENV/
 # Generated pipeline outputs (re-created by running the pipeline)
 outputs/figures/
 outputs/models/
-data/processed/
 
 # IDE
 .vscode/
