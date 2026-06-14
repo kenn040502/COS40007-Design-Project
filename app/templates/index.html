@@ -151,9 +151,9 @@
     .axis-ctrl { display: flex; flex-direction: column; gap: 4px; min-width: 200px; }
     .axis-ctrl label { font-size: 0.78rem; color: var(--muted); font-weight: 500; }
     .cluster-reset-btn {
-      padding: 8px 12px; border: 1px solid var(--border); border-radius: 6px;
-      font-size: 0.9rem; background: #fff; color: var(--text); cursor: pointer;
-      text-align: left; width: 100%;
+      padding: 0 12px; border: 1px solid var(--border); border-radius: 6px;
+      font-size: 0.85rem; background: #fff; color: var(--text); cursor: pointer;
+      white-space: nowrap; flex-shrink: 0; line-height: 1;
     }
     .cluster-reset-btn:hover { border-color: var(--primary); color: var(--primary); }
 
@@ -444,17 +444,16 @@
       </div>
       <div class="axis-ctrl">
         <label for="cluster-y-axis">Y Axis</label>
-        <select id="cluster-y-axis" onchange="redrawClusterChart()">
-          <option value="cpi_growth_rate" selected>CPI Growth Rate</option>
-          <option value="cpi_volatility">CPI Volatility</option>
-          <option value="mean_cpi_index">Mean CPI Index</option>
-          <option value="income_mean_latest">Mean Household Income</option>
-          <option value="income_median_latest">Median Household Income</option>
-        </select>
-      </div>
-      <div class="axis-ctrl">
-        <label>&nbsp;</label>
-        <button class="cluster-reset-btn" onclick="resetClusterAxes()">↺ Reset</button>
+        <div style="display:flex;gap:6px;align-items:stretch;">
+          <select id="cluster-y-axis" onchange="redrawClusterChart()">
+            <option value="cpi_growth_rate" selected>CPI Growth Rate</option>
+            <option value="cpi_volatility">CPI Volatility</option>
+            <option value="mean_cpi_index">Mean CPI Index</option>
+            <option value="income_mean_latest">Mean Household Income</option>
+            <option value="income_median_latest">Median Household Income</option>
+          </select>
+          <button class="cluster-reset-btn" onclick="resetClusterAxes()">↺ Reset</button>
+        </div>
       </div>
     </div>
     <div class="chart-wrap">
