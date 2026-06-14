@@ -46,7 +46,20 @@
       "Bash(git lfs *)",
       "Bash(git add *)",
       "Bash(git commit -m ' *)",
-      "Bash(git push *)"
+      "Bash(git push *)",
+      "Bash(python -c \"import pandas as pd; df=pd.read_csv\\('data/processed/states_kmeans_clustered.csv'\\); print\\(df.columns.tolist\\(\\)\\); print\\(df.head\\(2\\).to_string\\(\\)\\)\")",
+      "Bash(python -c \"import pandas as pd; df=pd.read_csv\\('data/processed/states_hierarchical_clustered.csv'\\); print\\(df.columns.tolist\\(\\)\\); print\\(df.head\\(2\\).to_string\\(\\)\\)\")",
+      "Bash(python -c \"import pandas as pd; df=pd.read_csv\\('data/processed/states_kmeans_clustered.csv'\\); print\\(sorted\\(df['state'].tolist\\(\\)\\)\\)\")",
+      "Bash(python -c \"import json; d=json.load\\(open\\('outputs/models/clustering_results.json'\\)\\); print\\(list\\(d.keys\\(\\)\\)\\)\")",
+      "Bash(python -c \"import json; d=json.load\\(open\\('outputs/models/clustering_results.json'\\)\\); dend=d['dendrogram']; print\\(type\\(dend\\)\\); print\\(list\\(dend.keys\\(\\)\\) if isinstance\\(dend, dict\\) else 'not dict'\\)\")",
+      "Bash(python -c \"import json; d=json.load\\(open\\('outputs/models/clustering_results.json'\\)\\); dend=d['dendrogram']; print\\('color_list[:5]:', dend['color_list'][:5]\\); print\\('ivl:', dend['ivl']\\); print\\('len icoord:', len\\(dend['icoord']\\)\\)\")",
+      "Bash(python -c \"import json; d=json.load\\(open\\('outputs/models/clustering_results.json'\\)\\); print\\('pca_variance:', d['pca_variance']\\); print\\('best_k:', d['best_k']\\); print\\('elbow keys:', list\\(d['elbow_metrics'].keys\\(\\)\\)\\)\")",
+      "Bash(python -c \"import ast; ast.parse\\(open\\('app/streamlit_app.py'\\).read\\(\\)\\); print\\('Syntax OK'\\)\")",
+      "Bash(python -c \"import ast; ast.parse\\(open\\('app/streamlit_app.py', encoding='utf-8'\\).read\\(\\)\\); print\\('Syntax OK'\\)\")",
+      "Bash(python -c \"import json,sys; d=json.load\\(sys.stdin\\); print\\('keys:', list\\(d.keys\\(\\)\\)\\)\")",
+      "Bash(python -c \"import json,sys; d=json.load\\(sys.stdin\\); tr=d['train']; print\\('train keys:', list\\(tr.keys\\(\\)\\) if isinstance\\(tr, dict\\) else type\\(tr\\)\\)\")",
+      "Bash(git pull *)",
+      "Bash(git stash *)"
     ],
     "additionalDirectories": [
       "C:\\Users\\User\\Documents\\GitHub\\COS40007-Design-Project\\outputs\\figures"

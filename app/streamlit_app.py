@@ -193,7 +193,14 @@ hr { border-color: #d1d5db !important; margin: 1rem 0 !important; }
 }
 
 /* ── Radio / select controls ── */
-[data-testid="stRadio"] label { color: #1e2330 !important; }
+[data-testid="stRadio"] label,
+[data-testid="stRadio"] label p,
+[data-testid="stRadio"] label span,
+[data-testid="stRadio"] [role="radiogroup"] label,
+[data-testid="stRadio"] [role="radiogroup"] label p,
+[data-testid="stRadio"] [role="radiogroup"] label span,
+[data-testid="stRadio"] div p,
+[data-testid="stRadio"] > div > div { color: #1e2330 !important; }
 
 /* ── Border containers → HTML card style ── */
 [data-testid="stVerticalBlockBorderWrapper"] {
