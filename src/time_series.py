@@ -63,7 +63,7 @@ def select_order(series: pd.Series, p_max: int = 4, q_max: int = 4) -> tuple:
             if p == 0 and q == 0:
                 continue
             done += 1
-            print(f"    BIC grid [{done}/{total}]: ARIMA({p},{d},{q})", end="\r", flush=True)
+            print(f"    BIC grid [{done}/{total}]: ARIMA({p},{d},{q})", flush=True)
             try:
                 m = ARIMA(series.values, order=(p, d, q)).fit()
                 if m.bic < best_bic:
@@ -72,7 +72,6 @@ def select_order(series: pd.Series, p_max: int = 4, q_max: int = 4) -> tuple:
             except Exception:
                 pass
 
-    print()  # newline after \r progress
     return best_order
 
 
@@ -202,7 +201,25 @@ def compute_fuel_exog_model(inflation_df: pd.DataFrame, fuelprice_df: pd.DataFra
     y_train, y_test = y.iloc[:-test_n], y.iloc[-test_n:]
     X_train, X_test = X.iloc[:-test_n], X.iloc[-test_n:]
 
-    order = select_order(y_train)
+    # Reuse cached order if available to skip the expensive BIC grid search.
+    # Delete outputs/models/fuel_exog_results.json to force a fresh search.
+    order = None
+    _exog_cache = os.path.join(MODELS_DIR, "fuel_exog_results.json")
+    if os.path.exists(_exog_cache):
+        try:
+            with open(_exog_cache) as _f:
+                _ec = json.load(_f)
+            _o = tuple(_ec.get("order", []))
+            if len(_o) == 3:
+                order = _o
+                print(f"    Reusing cached ARIMAX order {order} "
+                      f"(delete outputs/models/fuel_exog_results.json to re-run grid search)")
+        except Exception:
+            order = None
+
+    if order is None:
+        print(f"    BIC grid search on fuel/CPI overlap ({len(y_train)} months)…")
+        order = select_order(y_train)
 
     # ARIMAX — fuel as exogenous regressor
     arimax = SARIMAX(y_train, exog=X_train, order=order,
@@ -230,7 +247,7 @@ def compute_fuel_exog_model(inflation_df: pd.DataFrame, fuelprice_df: pd.DataFra
             coefs[col] = {"coef": round(float(full.params[col]), 4),
                           "pvalue": round(float(full.pvalues[col]), 4)}
 
-    return {
+    result = {
         "available": True,
         "order": list(order),
         "exog_cols": list(exog_cols),
@@ -243,6 +260,9 @@ def compute_fuel_exog_model(inflation_df: pd.DataFrame, fuelprice_df: pd.DataFra
         "rmse_improvement_pct": round(float(rmse_gain), 2),
         "exog_coefficients": coefs,
     }
+    with open(_exog_cache, "w") as _f:
+        json.dump(result, _f, indent=2)
+    return result
 
 
 def run_live(inflation_df: pd.DataFrame, horizon: int = FORECAST_HORIZON, order: tuple = None):
