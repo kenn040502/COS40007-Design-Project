@@ -614,11 +614,11 @@ def _make_choropleth_cluster(geojson: dict, df: pd.DataFrame) -> go.Figure:
     fig = go.Figure(go.Choropleth(
         geojson=geojson, featureidkey="properties.name",
         locations=locations, z=z_vals, text=hover, hoverinfo="text",
-        colorscale=colorscale, zmin=0, zmax=n - 1,
+        colorscale=colorscale, zmin=-0.5, zmax=n - 0.5,
         colorbar=dict(
             title=dict(text="Cluster", side="right"),
             thickness=14, len=0.6,
-            tickvals=[i + 0.5 for i in range(n)],
+            tickvals=list(range(n)),
             ticktext=labels, nticks=n,
         ),
         marker=dict(line=dict(color="#fff", width=0.8)),
