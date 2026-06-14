@@ -553,14 +553,15 @@ with tab3:
     elbow = clust.get("elbow_metrics", {})
     if elbow:
         st.subheader("Elbow / Silhouette / Davies-Bouldin Metrics")
-        k_vals = sorted(elbow.keys(), key=int)
-        elbw_df = pd.DataFrame({
-            "K": [int(k) for k in k_vals],
-            "Inertia":        [elbow[k].get("inertia")        for k in k_vals],
-            "Silhouette":     [elbow[k].get("silhouette")     for k in k_vals],
-            "Davies-Bouldin": [elbow[k].get("davies_bouldin") for k in k_vals],
-        })
-        st.dataframe(elbw_df, use_container_width=True, hide_index=True)
+        k_range = elbow.get("k_range", [])
+        if k_range:
+            elbw_df = pd.DataFrame({
+                "K":              k_range,
+                "Inertia":        elbow.get("inertias",   [None] * len(k_range)),
+                "Silhouette":     elbow.get("silhouettes",[None] * len(k_range)),
+                "Davies-Bouldin": elbow.get("db_scores",  [None] * len(k_range)),
+            })
+            st.dataframe(elbw_df, use_container_width=True, hide_index=True)
         best_k = clust.get("best_k")
         if best_k:
             st.success(f"Selected K = {best_k}  (best silhouette score)", icon="✅")
