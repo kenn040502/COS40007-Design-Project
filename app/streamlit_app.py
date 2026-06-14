@@ -98,7 +98,7 @@ _STATE_LL: dict[str, tuple[float, float]] = {
 }
 
 _PLOTLY_COLORS = (
-    px.colors.qualitative.Tab10
+    px.colors.qualitative.Plotly
     + px.colors.qualitative.Pastel
     + px.colors.qualitative.Set3
 )
