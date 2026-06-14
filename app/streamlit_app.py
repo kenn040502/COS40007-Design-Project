@@ -542,6 +542,44 @@ with tab1:
         )
         st.plotly_chart(fig_st, use_container_width=True)
 
+    # ── State CPI map ────────────────────────────────────────────────────────
+    st.markdown("""
+    <div class="card">
+      <p class="card-title">Malaysia State CPI Map — Latest Month</p>
+      <p class="card-desc">
+        Geographic view of the latest overall CPI index across all 16 Malaysian states.
+        Bubble size and colour both reflect the CPI index value (Base 2010 = 100).
+        Hover a state for its exact index.
+      </p>
+    </div>
+    """, unsafe_allow_html=True)
+
+    latest_cpi = (
+        cpi_state[cpi_state["division"] == "overall"]
+        .sort_values("date")
+        .groupby("state", as_index=False)
+        .last()
+    )
+    latest_cpi = _add_coords(latest_cpi)
+    if not latest_cpi.empty:
+        fig_cpi_map = px.scatter_geo(
+            latest_cpi, lat="lat", lon="lon",
+            color="index", size="index",
+            hover_name="state",
+            hover_data={"index": ":.1f", "lat": False, "lon": False, "date": True},
+            color_continuous_scale="Blues",
+            size_max=30,
+            labels={"index": "CPI Index"},
+        )
+        _geo_layout(fig_cpi_map, "Latest Overall CPI Index by State")
+        fig_cpi_map.update_layout(paper_bgcolor="#ffffff")
+        fig_cpi_map.update_coloraxes(colorbar_title="CPI Index")
+        st.plotly_chart(fig_cpi_map, use_container_width=True)
+        st.caption(
+            f"Reference month: {latest_cpi['date'].max().strftime('%B %Y')}  ·  "
+            "Base year 2010 = 100"
+        )
+
 
 # ══════════════════════════════════════════════════════════════════════════════
 # TAB 2 — TIME SERIES FORECAST
