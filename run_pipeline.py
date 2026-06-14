@@ -17,6 +17,13 @@ import os
 os.chdir(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
+# Point matplotlib at the pre-built font cache committed with the repo.
+# This avoids the 2-3 minute "building font cache" step on cold Render starts.
+os.environ.setdefault(
+    "MPLCONFIGDIR",
+    os.path.join(os.path.dirname(os.path.abspath(__file__)), "outputs", "mpl_cache"),
+)
+
 from src.preprocessing import run_all as preprocess
 from src.time_series import run_all as run_ts
 from src.clustering import run_all as run_clustering
@@ -63,10 +70,15 @@ def main():
     if "--no-dashboard" in sys.argv:
         return
 
-    print("\nStarting web dashboard at http://localhost:5050 ...")
+    print("\nStarting Streamlit dashboard at http://localhost:8501 ...")
     print("Press Ctrl+C to stop.\n")
-    from app.dashboard import app
-    app.run(debug=False, port=5050)
+    import subprocess
+    subprocess.run([
+        sys.executable, "-m", "streamlit", "run",
+        os.path.join(root, "app", "streamlit_app.py"),
+        "--server.port=8501",
+        "--server.headless=true",
+    ])
 
 
 if __name__ == "__main__":

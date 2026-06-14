@@ -8,6 +8,12 @@ Dynamic sections use lightweight JSON API endpoints.
 import os
 import sys
 import json
+
+# Pre-built font cache committed with the repo — avoids cold-start rebuild.
+os.environ.setdefault(
+    "MPLCONFIGDIR",
+    os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "outputs", "mpl_cache"),
+)
 import subprocess
 import threading
 import queue
@@ -389,6 +395,21 @@ def api_run_pipeline():
         mimetype="text/event-stream",
         headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
     )
+
+
+def _prewarm_matplotlib():
+    """Build matplotlib font cache at startup so pipeline subprocess skips it."""
+    try:
+        import matplotlib
+        matplotlib.use("Agg")
+        import matplotlib.pyplot as plt
+        fig, ax = plt.subplots()
+        ax.plot([0], [0])
+        plt.close(fig)
+    except Exception:
+        pass
+
+threading.Thread(target=_prewarm_matplotlib, daemon=True).start()
 
 
 if __name__ == "__main__":
