@@ -56,9 +56,17 @@ print(f"  ARIMA order : {ar['arima_order']}")
 print(f"  AIC         : {ar.get('aic', 'n/a')}")
 print(f"  BIC         : {ar.get('bic', 'n/a')}")
 m = ar["metrics"]
+base = ar.get("baseline", {}).get("metrics", {})
 print(f"  Test MAE    : {m['MAE']:.4f}")
 print(f"  Test RMSE   : {m['RMSE']:.4f}")
-print(f"  Test MAPE   : {m['MAPE']:.2f}%")
+print(f"  Test sMAPE  : {m.get('sMAPE', float('nan')):.2f}%")
+print(f"  Test MASE   : {m.get('MASE', float('nan')):.4f}  (<1 beats naive baseline)")
+print(f"  Naive baseline RMSE : {base.get('RMSE', float('nan')):.4f}")
+exog = ar.get("fuel_exog_experiment", {})
+if exog.get("available"):
+    print(f"  ARIMAX(fuel) RMSE   : {exog['arimax_metrics']['RMSE']:.4f} vs "
+          f"ARIMA {exog['arima_metrics']['RMSE']:.4f} "
+          f"({exog['rmse_improvement_pct']:+.2f}% from fuel)")
 fc = ar["forecast"]["values"]
 print(f"  Forecast horizon : {ar['horizon']} months")
 print(f"  Forecast range   : {min(fc):.2f}% – {max(fc):.2f}%")

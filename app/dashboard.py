@@ -168,10 +168,13 @@ def api_ts_live():
 
 @app.route("/api/cluster/states")
 def api_cluster_states():
-    """K-Means cluster assignment for each state."""
+    """Cluster assignment per state. ?method=kmeans (default) or hierarchical."""
     if not _pipeline_ready():
         return _not_ready()
-    df = _load_df("states_kmeans_clustered.csv")
+    method = request.args.get("method", "kmeans").lower()
+    fname = ("states_hierarchical_clustered.csv" if method == "hierarchical"
+             else "states_kmeans_clustered.csv")
+    df = _load_df(fname)
     return jsonify(df.to_dict(orient="records"))
 
 
@@ -183,6 +186,41 @@ def api_cluster_metrics():
     path = os.path.join(MODELS_DIR, "cluster_metrics_summary.csv")
     df = pd.read_csv(path)
     return jsonify(df.to_dict(orient="records"))
+
+
+@app.route("/api/cluster/elbow")
+def api_cluster_elbow():
+    """Elbow / silhouette / Davies-Bouldin curves used to choose k."""
+    if not _pipeline_ready():
+        return _not_ready()
+    res = _load_clustering()
+    return jsonify({
+        "elbow_metrics": res.get("elbow_metrics", {}),
+        "best_k": res.get("best_k"),
+        "pca_variance": res.get("pca_variance", []),
+    })
+
+
+@app.route("/api/cluster/dendrogram")
+def api_cluster_dendrogram():
+    """Drawable coordinates for an interactive hierarchical dendrogram."""
+    if not _pipeline_ready():
+        return _not_ready()
+    dn = _load_clustering().get("dendrogram")
+    if not dn:
+        return jsonify({"error": "Dendrogram data not available."}), 404
+    return jsonify(dn)
+
+
+@app.route("/api/fuel/exog")
+def api_fuel_exog():
+    """ARIMAX (fuel as exogenous regressor) vs univariate ARIMA experiment."""
+    if not _pipeline_ready():
+        return _not_ready()
+    exp = _load_arima().get("fuel_exog_experiment")
+    if not exp:
+        return jsonify({"available": False, "reason": "Not computed."}), 404
+    return jsonify(exp)
 
 
 @app.route("/api/fuel/prices")
@@ -245,6 +283,18 @@ def serve_figure(filename):
 
 _pipeline_lock = threading.Lock()
 _pipeline_running = False
+_pipeline_proc = None   # handle to the running subprocess, for cancellation
+
+
+@app.route("/api/run/cancel", methods=["POST"])
+def api_cancel_pipeline():
+    """Terminate the currently running pipeline subprocess, if any."""
+    global _pipeline_proc
+    proc = _pipeline_proc
+    if proc is not None and proc.poll() is None:
+        proc.terminate()
+        return jsonify({"cancelled": True})
+    return jsonify({"cancelled": False, "reason": "No pipeline running."})
 
 
 @app.route("/api/run", methods=["POST"])
@@ -263,6 +313,7 @@ def api_run_pipeline():
     pipeline_script = os.path.join(ROOT_DIR, "run_pipeline.py")
 
     def _run():
+        global _pipeline_proc
         try:
             proc = subprocess.Popen(
                 [sys.executable, "-u", pipeline_script, "--no-dashboard"],
@@ -271,14 +322,18 @@ def api_run_pipeline():
                 text=True,
                 cwd=ROOT_DIR,
             )
+            _pipeline_proc = proc
             for line in proc.stdout:
                 log_queue.put(line.rstrip())
             proc.wait()
+            if proc.returncode is not None and proc.returncode < 0:
+                log_queue.put("⚠ Pipeline cancelled by user.")
             log_queue.put(f"__EXIT__{proc.returncode}")
         except Exception as e:
             log_queue.put("__EXIT__1")
             log_queue.put(f"ERROR: {e}")
         finally:
+            _pipeline_proc = None
             _load_arima.cache_clear()
             _load_clustering.cache_clear()
             _load_fuel_correlation.cache_clear()
@@ -290,14 +345,27 @@ def api_run_pipeline():
     thread = threading.Thread(target=_run, daemon=True)
     thread.start()
 
+    # A single pipeline step (e.g. the ARIMA BIC grid search) can run for a
+    # while without printing. Rather than give up on the first quiet stretch,
+    # poll briefly and emit an SSE heartbeat comment to keep the connection
+    # alive; only abort after a genuinely long total silence as a safety net.
+    HEARTBEAT_SECS = 15
+    MAX_SILENCE_SECS = 300  # 5 min with zero output → assume something hung
+
     def _stream():
         yield "retry: 1000\n\n"
+        silence = 0
         while True:
             try:
-                line = log_queue.get(timeout=60)
+                line = log_queue.get(timeout=HEARTBEAT_SECS)
             except queue.Empty:
-                yield "data: [timeout]\n\n"
-                break
+                silence += HEARTBEAT_SECS
+                if silence >= MAX_SILENCE_SECS:
+                    yield "data: [timeout — pipeline appears to have stalled]\n\n"
+                    break
+                yield ": keepalive\n\n"   # SSE comment, ignored by the browser
+                continue
+            silence = 0
             if line.startswith("__EXIT__"):
                 code = line.split("__")[2]
                 yield f"event: done\ndata: {code}\n\n"
@@ -312,4 +380,5 @@ def api_run_pipeline():
 
 
 if __name__ == "__main__":
-    app.run(host="0.0.0.0", debug=True, port=5050)
+    # debug=False: never expose the Werkzeug interactive debugger on 0.0.0.0.
+    app.run(host="0.0.0.0", debug=False, port=5050)

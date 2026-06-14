@@ -33,6 +33,8 @@ income      = pd.read_csv(os.path.join(PROC, "income_state_clean.csv"), parse_da
 
 ts_row     = ts_metrics.iloc[0]
 metrics    = ar["metrics"]
+baseline   = ar.get("baseline", {}).get("metrics", {})
+exog_exp   = ar.get("fuel_exog_experiment", {})
 arima_ord  = ar["arima_order"]
 stat       = ar["stationarity"]
 fc_vals    = ar["forecast"]["values"]
@@ -267,7 +269,7 @@ add_bullets(s, Inches(0.5), Inches(1.6), Inches(6.2), Inches(5), [
 add_textbox(s, Inches(7.2), Inches(1.1), Inches(5.5), Inches(0.4),
             "Headline Outcomes", size=18, bold=True, color=NAVY)
 add_metric_card(s, Inches(7.2), Inches(1.6),  Inches(2.6), Inches(1.2),
-                "Test MAPE (ARIMA)", f"{metrics['MAPE']:.2f}%")
+                "Test MASE (ARIMA)", f"{metrics.get('MASE', float('nan')):.2f}")
 add_metric_card(s, Inches(10.1), Inches(1.6), Inches(2.6), Inches(1.2),
                 "Test RMSE",        f"{metrics['RMSE']:.4f}")
 add_metric_card(s, Inches(7.2), Inches(3.0),  Inches(2.6), Inches(1.2),
@@ -444,9 +446,9 @@ add_metric_card(s, Inches(9.3),  Inches(1.7), Inches(1.8), Inches(0.95),
 add_metric_card(s, Inches(11.2), Inches(1.7), Inches(1.8), Inches(0.95),
                 "RMSE",      f"{metrics['RMSE']:.3f}")
 add_metric_card(s, Inches(9.3),  Inches(2.75), Inches(1.8), Inches(0.95),
-                "MAPE (%)",  f"{metrics['MAPE']:.2f}")
+                "MASE",  f"{metrics.get('MASE', float('nan')):.2f}")
 add_metric_card(s, Inches(11.2), Inches(2.75), Inches(1.8), Inches(0.95),
-                "Horizon (mo)", ar["horizon"])
+                "Naive RMSE", f"{baseline.get('RMSE', float('nan')):.3f}")
 
 add_textbox(s, Inches(9.3), Inches(3.9), Inches(3.8), Inches(0.4),
             "Forecast next 24 mo", size=15, bold=True, color=NAVY)
@@ -575,7 +577,9 @@ fc_rows = [
     ["ARIMA order", f"({arima_ord[0]},{arima_ord[1]},{arima_ord[2]})"],
     ["MAE",  f"{metrics['MAE']:.4f}"],
     ["RMSE", f"{metrics['RMSE']:.4f}"],
-    ["MAPE (%)", f"{metrics['MAPE']:.2f}"],
+    ["sMAPE (%)", f"{metrics.get('sMAPE', float('nan')):.2f}"],
+    ["MASE", f"{metrics.get('MASE', float('nan')):.2f}"],
+    ["Naive RMSE", f"{baseline.get('RMSE', float('nan')):.4f}"],
     ["AIC",  ar["aic"]],
     ["BIC",  ar["bic"]],
 ]
@@ -722,7 +726,7 @@ add_title(s, "Team Contributions",
 
 contribs = [
     ("Kenneth Hui Hong CHUA", "Time-Series Modelling Lead (ARIMA)",
-     "CPI dataset · ARIMA module · BIC order selection · ADF stationarity · MAE / RMSE / MAPE evaluation."),
+     "CPI dataset · ARIMA module · BIC order selection · ADF stationarity · MAE / RMSE / sMAPE / MASE evaluation."),
     ("Kelvin Wen Kiong FONG", "Clustering AI Lead",
      "State features · K-Means + Hierarchical (Ward) · silhouette / DB / CH validity · PCA visualisation."),
     ("Nigel Zi Jun LING", "Evaluation & Analytics",
@@ -758,17 +762,19 @@ add_title(s, "Limitations & Future Work")
 add_textbox(s, Inches(0.5), Inches(1.2), Inches(6), Inches(0.4),
             "Limitations", size=18, bold=True, color=ACCENT)
 add_bullets(s, Inches(0.5), Inches(1.7), Inches(6), Inches(5), [
-    ("Univariate ARIMA: ", "cannot anticipate structural breaks (e.g. fuel subsidy reform)."),
+    ("Long-horizon skill: ", f"MASE = {metrics.get('MASE', float('nan')):.2f} (>1) — over a 24-month "
+     "block the stationary model does not beat a naive baseline (reported honestly)."),
+    ("Fuel adds no forecast gain: ", "fuel correlates with inflation but, as an ARIMAX regressor, did "
+     "not lower test error in this specification."),
     ("Small cross-section: ", "16 states limits the number of well-separated clusters."),
-    ("Income survey infrequency: ", "income features use the latest available year only."),
-    ("Test MAPE ceiling: ", f"{metrics['MAPE']:.0f}% reflects post-pandemic volatility, not model weakness."),
+    ("Income survey infrequency: ", "income features use the latest available year (≈2022) only."),
     ("Aggregate CPI: ", "national series masks division-level variation already shown."),
 ], size=13)
 
 add_textbox(s, Inches(7.0), Inches(1.2), Inches(6), Inches(0.4),
             "Future Work", size=18, bold=True, color=NAVY)
 add_bullets(s, Inches(7.0), Inches(1.7), Inches(6), Inches(5), [
-    ("SARIMAX: ", "add exogenous regressors (oil price, exchange rate)."),
+    ("Rolling one-step evaluation: ", "the fair test of short-horizon skill, where ARIMA should beat naive."),
     ("LSTM / Prophet: ", "compare non-linear forecasters on the same hold-out."),
     ("Division-level ARIMA: ", "forecast each of the 13 CPI divisions separately."),
     ("District clustering: ", "extend from 16 states to 160 districts when data permits."),
@@ -783,11 +789,12 @@ s = add_slide()
 add_title(s, "Conclusions  ·  Thank you  ·  Q&A")
 
 add_bullets(s, Inches(0.5), Inches(1.2), Inches(12.5), Inches(3.5), [
-    ("ARIMA forecasts national CPI ", f"with test MAPE {metrics['MAPE']:.2f}% and a clear "
-     f"{ar['horizon']}-month outlook ({min(fc_vals):.1f}-{max(fc_vals):.1f}%)."),
+    ("ARIMA gives a national CPI outlook ", f"({min(fc_vals):.1f}-{max(fc_vals):.1f}% over {ar['horizon']} "
+     f"months; RMSE {metrics['RMSE']:.2f}), with a candid MASE = {metrics.get('MASE', float('nan')):.2f} "
+     "showing long-horizon point accuracy is limited."),
     (f"Two-tier state structure (k = {best_k}) ", f"is robust across K-Means and Hierarchical "
      f"clustering (silhouette {km_scores['silhouette']:.3f})."),
-    ("Fuel-price → CPI pass-through ", "is rapid (lag-0 strongest) — supports targeted subsidy policy."),
+    ("Fuel correlates with CPI ", "but did not improve the forecast (ARIMAX) — association ≠ predictive power."),
     ("Reproducible pipeline + Flask dashboard ", "make the analysis usable by non-technical stakeholders."),
     ("All results reconcile ", "with DOSM official 2022 published figures."),
 ], size=15)

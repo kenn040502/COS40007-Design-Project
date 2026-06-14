@@ -260,6 +260,10 @@ def run_all(state_features_df: pd.DataFrame = None) -> dict:
 
     df_km = state_features_df[["state"] + FEATURE_COLS].copy()
     df_km["cluster"] = km_labels
+    # PCA coordinates (row order matches X_scaled / state_features_df) so the
+    # dashboard can render an interactive scatter instead of a static PNG.
+    df_km["pc1"] = X_pca[:, 0]
+    df_km["pc2"] = X_pca[:, 1] if X_pca.shape[1] > 1 else 0.0
     df_km, label_map_km = assign_semantic_labels(df_km)
 
     km_scores = {
@@ -278,6 +282,8 @@ def run_all(state_features_df: pd.DataFrame = None) -> dict:
     _, hc_labels = fit_hierarchical(X_scaled, best_k)
     df_hc = state_features_df[["state"] + FEATURE_COLS].copy()
     df_hc["cluster"] = hc_labels
+    df_hc["pc1"] = X_pca[:, 0]
+    df_hc["pc2"] = X_pca[:, 1] if X_pca.shape[1] > 1 else 0.0
     df_hc, label_map_hc = assign_semantic_labels(df_hc)
 
     hc_scores = {
@@ -293,12 +299,27 @@ def run_all(state_features_df: pd.DataFrame = None) -> dict:
     plot_dendrogram(X_scaled, labels=state_features_df["state"].tolist(),
                     save_path=os.path.join(FIGURES_DIR, "cluster_dendrogram.png"))
 
+    # Export the dendrogram's drawable coordinates (no_plot) so the dashboard
+    # can render an interactive, hoverable version instead of a static PNG.
+    Z = linkage(X_scaled, method="ward")
+    dn = dendrogram(Z, labels=state_features_df["state"].tolist(),
+                    color_threshold=0.7 * max(Z[:, 2]), no_plot=True)
+    dendro_data = {
+        "icoord": dn["icoord"],          # x-coordinates of each link (U shape)
+        "dcoord": dn["dcoord"],          # heights of each link
+        "ivl": dn["ivl"],                # leaf labels, left → right
+        "color_list": dn["color_list"],  # matplotlib colour code per link
+    }
+
     df_km.to_csv(os.path.join(PROCESSED_DIR, "states_kmeans_clustered.csv"), index=False)
     df_hc.to_csv(os.path.join(PROCESSED_DIR, "states_hierarchical_clustered.csv"), index=False)
 
     result = {
         "best_k": best_k,
         "elbow_metrics": metrics,
+        "pca_variance": [float(v) for v in pca.explained_variance_ratio_],
+        "feature_cols": FEATURE_COLS,
+        "dendrogram": dendro_data,
         "kmeans": {
             "scores": km_scores,
             "label_map": {int(k): v for k, v in label_map_km.items()},

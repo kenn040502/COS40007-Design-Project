@@ -18,8 +18,9 @@ CONTRIBUTIONS = {
         "differencing order d.",
         "• Trained the final ARIMA model on the complete series and computed AIC and BIC "
         "for model justification.",
-        "• Computed time-series evaluation metrics on the hold-out test set (MAE, RMSE, MAPE) "
-        "and analysed forecast accuracy.",
+        "• Computed scale-appropriate time-series evaluation metrics on the hold-out test set "
+        "(MAE, RMSE, sMAPE, and MASE against a naive baseline) and analysed forecast accuracy, "
+        "including an ARIMAX experiment testing fuel price as an exogenous predictor.",
     ],
     "Kelvin Wen Kiong FONG": [
         "AI Role: State Clustering Lead.",
