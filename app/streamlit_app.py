@@ -5,6 +5,7 @@ Tabs: Overview | Time Series Forecast | State Clustering | Fuel Analysis
 import os
 import sys
 import json
+import urllib.request
 import subprocess
 
 import numpy as np
@@ -124,13 +125,6 @@ button[data-testid="stTab"][aria-selected="true"] p {
 }
 
 /* ── Card sections ── */
-.card {
-  background: #ffffff;
-  border-radius: 10px;
-  box-shadow: 0 1px 6px rgba(0,0,0,0.08);
-  padding: 24px;
-  margin-bottom: 22px;
-}
 .card-title {
   font-size: 1.05rem;
   font-weight: 700;
@@ -144,6 +138,17 @@ button[data-testid="stTab"][aria-selected="true"] p {
   text-align: center;
   margin-bottom: 16px;
 }
+
+/* ── Metric chips (time series) ── */
+.metric-row {
+  display: flex; gap: 10px; flex-wrap: wrap;
+  margin-bottom: 16px; justify-content: center;
+}
+.metric-chip {
+  background: #f4f6fa; border: 1px solid #d1d5db;
+  border-radius: 6px; padding: 6px 14px; font-size: 0.82rem;
+}
+.metric-chip strong { color: #1a3c6e; }
 
 /* ── Headings ── */
 h1, h2, h3 { color: #1a3c6e !important; }
@@ -190,9 +195,6 @@ hr { border-color: #d1d5db !important; margin: 1rem 0 !important; }
 /* ── Radio / select controls ── */
 [data-testid="stRadio"] label { color: #1e2330 !important; }
 
-/* ── Success message ── */
-[data-testid="stAlert"][kind="success"] { border-radius: 8px !important; }
-
 /* ── Border containers → HTML card style ── */
 [data-testid="stVerticalBlockBorderWrapper"] {
   background: #ffffff !important;
@@ -206,13 +208,36 @@ hr { border-color: #d1d5db !important; margin: 1rem 0 !important; }
 /* ── Slider label ── */
 [data-testid="stSlider"] label { color: #1e2330 !important; }
 
-/* ── Multiselect label ── */
+/* ── Multiselect / select label ── */
 [data-testid="stMultiSelect"] label { color: #1e2330 !important; }
+[data-testid="stSelectbox"] label   { color: #1e2330 !important; }
 
 /* ── Caption ── */
 [data-testid="stCaptionContainer"] { color: #6b7280 !important; }
 </style>
 """, unsafe_allow_html=True)
+
+# ─── Malaysia GeoJSON (choropleth maps) ──────────────────────────────────────
+_MY_GEOJSON_URL = (
+    "https://raw.githubusercontent.com/codeforgermany/"
+    "click_that_hood/main/public/data/malaysia.geojson"
+)
+_MY_NAME_MAP = {
+    "Pulau Pinang":      "Penang",
+    "W.P. Kuala Lumpur": "Federal Territory of Kuala Lumpur",
+    "W.P. Putrajaya":    "Federal Territory of Putrajaya",
+    "W.P. Labuan":       "Labuan",
+}
+
+
+@st.cache_data(show_spinner=False)
+def load_malaysia_geojson() -> dict | None:
+    try:
+        with urllib.request.urlopen(_MY_GEOJSON_URL, timeout=10) as resp:
+            return json.loads(resp.read())
+    except Exception:
+        return None
+
 
 # ─── Data loaders (cached) ───────────────────────────────────────────────────
 @st.cache_data
@@ -251,50 +276,21 @@ def pipeline_ready() -> bool:
     ])
 
 
-# ─── Malaysian state lat/lon ─────────────────────────────────────────────────
-_STATE_LL: dict[str, tuple[float, float]] = {
-    "Johor":             (1.86,  103.62),
-    "Kedah":             (6.12,  100.37),
-    "Kelantan":          (6.13,  102.24),
-    "Melaka":            (2.19,  102.24),
-    "Negeri Sembilan":   (2.72,  102.24),
-    "Pahang":            (3.81,  103.33),
-    "Penang":            (5.42,  100.33),
-    "Perak":             (4.59,  101.09),
-    "Perlis":            (6.44,  100.19),
-    "Sabah":             (5.98,  116.07),
-    "Sarawak":           (1.55,  110.36),
-    "Selangor":          (3.07,  101.52),
-    "Terengganu":        (5.31,  103.14),
-    "W.P. Kuala Lumpur": (3.15,  101.69),
-    "W.P. Labuan":       (5.28,  115.24),
-    "W.P. Putrajaya":    (2.93,  101.69),
-}
-
+# ─── Style constants ─────────────────────────────────────────────────────────
 _PALETTE = [
     "#1a3c6e", "#e8523a", "#22c55e", "#a855f7",
     "#f59e0b", "#06b6d4", "#ec4899", "#84cc16",
     "#f97316", "#8b5cf6", "#14b8a6", "#ef4444",
 ]
-
 _PLOTLY_COLORS = (
     px.colors.qualitative.Plotly
     + px.colors.qualitative.Pastel
     + px.colors.qualitative.Set3
 )
-
-
-def _add_coords(df: pd.DataFrame) -> pd.DataFrame:
-    df = df.copy()
-    df["lat"] = df["state"].map(lambda s: _STATE_LL.get(s, (None, None))[0])
-    df["lon"] = df["state"].map(lambda s: _STATE_LL.get(s, (None, None))[1])
-    return df.dropna(subset=["lat", "lon"])
-
-
-_TEXT   = "#1e2330"
-_MUTED  = "#6b7280"
-_GRID   = "#e5e7eb"
-_ZEROLINE = "#d1d5db"
+_TEXT        = "#1e2330"
+_MUTED       = "#6b7280"
+_GRID        = "#e5e7eb"
+_ZEROLINE    = "#d1d5db"
 _FONT_FAMILY = "'Segoe UI', system-ui, sans-serif"
 
 _AXIS_STYLE = dict(
@@ -305,9 +301,13 @@ _AXIS_STYLE = dict(
     linecolor=_ZEROLINE,
 )
 
+_DENDRO_COLORS = {
+    "b": "#1a3c6e", "g": "#22c55e", "r": "#e8523a",
+    "c": "#06b6d4", "m": "#a855f7", "y": "#f59e0b", "k": "#374151",
+}
+
 
 def _style(fig: go.Figure) -> go.Figure:
-    """Apply consistent font/colour to match the HTML design."""
     fig.update_layout(
         font=dict(family=_FONT_FAMILY, color=_TEXT, size=12),
         plot_bgcolor="#ffffff",
@@ -319,32 +319,253 @@ def _style(fig: go.Figure) -> go.Figure:
     return fig
 
 
-def _geo_layout(fig: go.Figure, title: str, height: int = 420) -> go.Figure:
-    fig.update_geos(
-        scope="asia",
-        center={"lat": 4.0, "lon": 109.5},
-        projection_scale=9,
-        showland=True,  landcolor="WhiteSmoke",
-        showocean=True, oceancolor="AliceBlue",
-        showcoastlines=True, coastlinecolor="DarkGray",
-    )
+def _dendro_color(c: str) -> str:
+    if c in _DENDRO_COLORS:
+        return _DENDRO_COLORS[c]
+    import re
+    m = re.match(r"^C(\d+)$", c or "")
+    if m:
+        return _PALETTE[int(m.group(1)) % len(_PALETTE)]
+    return "#1a3c6e"
+
+
+# ─── Cluster feature definitions ─────────────────────────────────────────────
+_FEATURE_OPTS = {
+    "Mean Household Income":   "income_mean_latest",
+    "Median Household Income": "income_median_latest",
+    "Mean CPI Index":          "mean_cpi_index",
+    "CPI Growth Rate":         "cpi_growth_rate",
+    "CPI Volatility":          "cpi_volatility",
+}
+_FEATURE_LABELS = {v: k for k, v in _FEATURE_OPTS.items()}
+_PROFILE_FEATS  = [
+    ("mean_cpi_index",       "Mean CPI"),
+    ("cpi_growth_rate",      "CPI Growth %"),
+    ("cpi_volatility",       "CPI Volatility"),
+    ("income_mean_latest",   "Mean Income"),
+    ("income_median_latest", "Median Income"),
+]
+
+
+# ─── Chart helpers ────────────────────────────────────────────────────────────
+def _make_cluster_scatter(df: pd.DataFrame, x_col: str, y_col: str) -> go.Figure:
+    labels = sorted(df["cluster_label"].unique())
+    fig = go.Figure()
+    for i, lbl in enumerate(labels):
+        pts = df[df["cluster_label"] == lbl]
+        fig.add_trace(go.Scatter(
+            x=pts[x_col], y=pts[y_col],
+            mode="markers+text",
+            name=lbl,
+            text=pts["state"],
+            textposition="top center",
+            textfont=dict(size=10),
+            marker=dict(size=14, color=_PALETTE[i % len(_PALETTE)], opacity=0.85),
+        ))
     fig.update_layout(
-        title=dict(text=title, font=dict(color=_TEXT, size=13, family=_FONT_FAMILY)),
-        height=height,
-        margin=dict(l=0, r=0, t=40, b=0),
-        font=dict(family=_FONT_FAMILY, color=_TEXT, size=12),
-        legend=dict(font=dict(size=11, color=_TEXT, family=_FONT_FAMILY)),
+        title=dict(
+            text=f"State Clusters: {_FEATURE_LABELS[x_col]} vs {_FEATURE_LABELS[y_col]}",
+            font=dict(size=13, color=_TEXT, family=_FONT_FAMILY),
+        ),
+        xaxis_title=_FEATURE_LABELS[x_col],
+        yaxis_title=_FEATURE_LABELS[y_col],
+        height=480, margin=dict(l=0, r=0, t=48, b=80),
+        legend=dict(orientation="h", y=-0.22),
+        hovermode="closest",
+    )
+    return _style(fig)
+
+
+def _make_pca_scatter(df: pd.DataFrame, title: str, pca_var: list) -> go.Figure:
+    if "pc1" not in df.columns or df["pc1"].isna().all():
+        return None
+    labels = sorted(df["cluster_label"].unique())
+    vx = f" ({pca_var[0]*100:.1f}% var)" if len(pca_var) > 0 else ""
+    vy = f" ({pca_var[1]*100:.1f}% var)" if len(pca_var) > 1 else ""
+    fig = go.Figure()
+    for i, lbl in enumerate(labels):
+        pts = df[df["cluster_label"] == lbl]
+        fig.add_trace(go.Scatter(
+            x=pts["pc1"], y=pts["pc2"],
+            mode="markers+text", name=lbl,
+            text=pts["state"], textposition="top center",
+            textfont=dict(size=9),
+            marker=dict(size=14, color=_PALETTE[i % len(_PALETTE)], opacity=0.85,
+                        line=dict(color="#fff", width=1)),
+        ))
+    fig.update_layout(
+        title=dict(text=title, font=dict(size=13, color=_TEXT, family=_FONT_FAMILY)),
+        xaxis_title="PC1" + vx, yaxis_title="PC2" + vy,
+        height=380, margin=dict(l=0, r=0, t=48, b=70),
+        legend=dict(orientation="h", y=-0.25),
+    )
+    return _style(fig)
+
+
+def _make_elbow_chart(elbow: dict, best_k: int | None) -> go.Figure:
+    k  = elbow.get("k_range", [])
+    si = elbow.get("silhouettes", [])
+    db = elbow.get("db_scores", [])
+    w  = elbow.get("inertias", [])
+    fig = go.Figure()
+    fig.add_trace(go.Scatter(
+        name="Silhouette (↑ better)", x=k, y=si, yaxis="y",
+        mode="lines+markers", line=dict(color="#22c55e", width=2), marker=dict(size=7),
+    ))
+    fig.add_trace(go.Scatter(
+        name="Davies-Bouldin (↓ better)", x=k, y=db, yaxis="y",
+        mode="lines+markers", line=dict(color="#e8523a", width=2), marker=dict(size=7),
+    ))
+    fig.add_trace(go.Scatter(
+        name="Inertia / WCSS (elbow)", x=k, y=w, yaxis="y2",
+        mode="lines+markers", line=dict(color="#1a3c6e", width=2, dash="dot"), marker=dict(size=7),
+    ))
+    shapes = []
+    annotations = []
+    if best_k:
+        shapes.append(dict(type="line", x0=best_k, x1=best_k, yref="paper", y0=0, y1=1,
+                           line=dict(color="#9ca3af", dash="dot", width=1.5)))
+        annotations.append(dict(x=best_k, y=1, yref="paper", xanchor="left",
+                                text=f"best k={best_k}", showarrow=False,
+                                font=dict(size=10, color="#6b7280")))
+    fig.update_layout(
+        title=dict(text="Optimal k Selection", font=dict(size=13, color=_TEXT)),
+        xaxis=dict(title="Number of clusters (k)", dtick=1),
+        yaxis=dict(title="Silhouette / Davies-Bouldin"),
+        yaxis2=dict(title="Inertia (WCSS)", overlaying="y", side="right", showgrid=False),
+        shapes=shapes, annotations=annotations,
+        legend=dict(orientation="h", y=-0.25),
+        height=380, margin=dict(l=0, r=55, t=48, b=70),
+    )
+    return _style(fig)
+
+
+def _make_profiles_heatmap(df: pd.DataFrame) -> go.Figure:
+    labels = sorted(df["cluster_label"].unique())
+    feat_keys = [f[0] for f in _PROFILE_FEATS]
+    feat_lbls = [f[1] for f in _PROFILE_FEATS]
+    raw = [[df.loc[df["cluster_label"] == lbl, k].mean() for k in feat_keys] for lbl in labels]
+    z   = [row[:] for row in raw]
+    for c in range(len(feat_keys)):
+        col = [raw[r][c] for r in range(len(labels))]
+        mn, mx = min(col), max(col)
+        for r in range(len(labels)):
+            z[r][c] = (raw[r][c] - mn) / (mx - mn) if mx != mn else 0.5
+    annot = [[f"{v:.0f}" if v >= 1000 else f"{v:.2f}" for v in row] for row in raw]
+    fig = go.Figure(go.Heatmap(
+        x=feat_lbls, y=labels, z=z,
+        text=annot, texttemplate="%{text}",
+        textfont=dict(size=11),
+        colorscale="RdYlGn", showscale=True,
+        colorbar=dict(title="Relative", thickness=14),
+        hovertemplate="%{y}<br>%{x}: %{text}<extra></extra>",
+    ))
+    fig.update_layout(
+        title=dict(text="Feature Averages per Cluster (colour = relative)", font=dict(size=12, color=_TEXT)),
+        height=380, margin=dict(t=44, r=20, b=70, l=150),
+        xaxis=dict(tickangle=-20),
+    )
+    return _style(fig)
+
+
+def _make_dendrogram(dendro: dict) -> go.Figure:
+    ic     = dendro.get("icoord", [])
+    dc     = dendro.get("dcoord", [])
+    ivl    = dendro.get("ivl", [])
+    colors = dendro.get("color_list", [])
+    traces = []
+    for i, (xs, ys) in enumerate(zip(ic, dc)):
+        c   = colors[i] if i < len(colors) else "b"
+        traces.append(go.Scatter(
+            x=xs, y=ys, mode="lines",
+            line=dict(color=_dendro_color(c), width=1.8),
+            hovertemplate=f"Merge distance: {max(ys):.2f}<extra></extra>",
+            showlegend=False,
+        ))
+    tickvals = [10 * i + 5 for i in range(len(ivl))]
+    fig = go.Figure(traces)
+    fig.update_layout(
+        title=dict(text="Ward-linkage dendrogram — states merge bottom-up by similarity",
+                   font=dict(size=12, color=_TEXT)),
+        xaxis=dict(tickvals=tickvals, ticktext=ivl, tickangle=-40,
+                   title="State", automargin=True),
+        yaxis=dict(title="Distance (Ward)", zeroline=False),
+        height=420, margin=dict(t=44, r=20, b=90, l=20),
+        hovermode="closest",
+    )
+    return _style(fig)
+
+
+def _make_choropleth_cpi(geojson: dict, df: pd.DataFrame) -> go.Figure:
+    locations, z_vals, hover = [], [], []
+    for _, row in df.iterrows():
+        geo_name = _MY_NAME_MAP.get(row["state"], row["state"])
+        locations.append(geo_name)
+        z_vals.append(row["mean_cpi"])
+        hover.append(
+            f"<b>{row['state']}</b><br>"
+            f"Mean CPI Index: {row['mean_cpi']:.1f}"
+        )
+    fig = go.Figure(go.Choropleth(
+        geojson=geojson, featureidkey="properties.name",
+        locations=locations, z=z_vals, text=hover, hoverinfo="text",
+        colorscale="YlOrRd",
+        colorbar=dict(title=dict(text="CPI Index", side="right"), thickness=14, len=0.6),
+        marker=dict(line=dict(color="#fff", width=0.8)),
+    ))
+    fig.update_geos(fitbounds="locations", visible=False,
+                    showland=True, landcolor="#f1f5f9",
+                    showocean=True, oceancolor="#e0f2fe",
+                    showcoastlines=True, coastlinecolor="#94a3b8")
+    fig.update_layout(
+        height=420, margin=dict(t=0, b=0, l=0, r=60),
         paper_bgcolor="#ffffff",
+        font=dict(family=_FONT_FAMILY, color=_TEXT, size=12),
     )
     return fig
 
 
-def _card(title: str, desc: str = "") -> None:
-    desc_html = f'<p class="card-desc">{desc}</p>' if desc else ""
-    st.markdown(
-        f'<div class="card"><p class="card-title">{title}</p>{desc_html}</div>',
-        unsafe_allow_html=True,
+def _make_choropleth_cluster(geojson: dict, df: pd.DataFrame) -> go.Figure:
+    labels = sorted(df["cluster_label"].unique())
+    n      = len(labels)
+    idx    = {lbl: i for i, lbl in enumerate(labels)}
+    colorscale = []
+    for i, _ in enumerate(labels):
+        c = _PALETTE[i % len(_PALETTE)]
+        colorscale += [[i / n, c], [(i + 1) / n, c]]
+    locations, z_vals, hover = [], [], []
+    for _, row in df.iterrows():
+        geo_name = _MY_NAME_MAP.get(row["state"], row["state"])
+        locations.append(geo_name)
+        z_vals.append(idx[row["cluster_label"]])
+        hover.append(
+            f"<b>{row['state']}</b><br>"
+            f"Cluster: {row['cluster_label']}<br>"
+            f"Mean Income: RM {int(row['income_mean_latest']):,}<br>"
+            f"CPI Growth: {row['cpi_growth_rate']:.2f}%"
+        )
+    fig = go.Figure(go.Choropleth(
+        geojson=geojson, featureidkey="properties.name",
+        locations=locations, z=z_vals, text=hover, hoverinfo="text",
+        colorscale=colorscale, zmin=0, zmax=n - 1,
+        colorbar=dict(
+            title=dict(text="Cluster", side="right"),
+            thickness=14, len=0.6,
+            tickvals=[i + 0.5 for i in range(n)],
+            ticktext=labels, nticks=n,
+        ),
+        marker=dict(line=dict(color="#fff", width=0.8)),
+    ))
+    fig.update_geos(fitbounds="locations", visible=False,
+                    showland=True, landcolor="#f1f5f9",
+                    showocean=True, oceancolor="#e0f2fe",
+                    showcoastlines=True, coastlinecolor="#94a3b8")
+    fig.update_layout(
+        height=440, margin=dict(t=0, b=0, l=0, r=140),
+        paper_bgcolor="#ffffff",
+        font=dict(family=_FONT_FAMILY, color=_TEXT, size=12),
     )
+    return fig
 
 
 # ─── Pipeline runner ─────────────────────────────────────────────────────────
@@ -352,28 +573,20 @@ def _run_pipeline() -> None:
     script = os.path.join(ROOT_DIR, "run_pipeline.py")
     log_box = st.empty()
     lines: list[str] = []
-
     with st.status("Running Analysis Pipeline…", expanded=True) as status:
         proc = subprocess.Popen(
             [sys.executable, "-u", script, "--no-dashboard"],
-            stdout=subprocess.PIPE,
-            stderr=subprocess.STDOUT,
-            text=True,
-            cwd=ROOT_DIR,
+            stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
+            text=True, cwd=ROOT_DIR,
         )
         for raw in proc.stdout:
             lines.append(raw.rstrip())
             log_box.code("\n".join(lines[-40:]))
         proc.wait()
-
         if proc.returncode == 0:
             status.update(label="Pipeline complete!", state="complete")
         else:
-            status.update(
-                label=f"Pipeline failed (exit code {proc.returncode})",
-                state="error",
-            )
-
+            status.update(label=f"Pipeline failed (exit code {proc.returncode})", state="error")
     st.cache_data.clear()
     st.rerun()
 
@@ -397,7 +610,7 @@ st.markdown("""
 </div>
 """, unsafe_allow_html=True)
 
-# ─── Pipeline status + Run button (below header, above tabs) ─────────────────
+# ─── Pipeline status + Run button ────────────────────────────────────────────
 ready = pipeline_ready()
 col_status, col_btn = st.columns([5, 1])
 with col_status:
@@ -419,18 +632,22 @@ if not ready:
     st.stop()
 
 # ─── Load data ───────────────────────────────────────────────────────────────
-arima      = load_arima()
-clust      = load_clustering()
-fuel_corr  = load_fuel_correlation()
-overall    = load_df("overall_inflation.csv")
-cpi_div    = load_df("cpi_inflation_clean.csv")
-fuel_df    = load_df("fuelprice_clean.csv")
-kmeans_df  = load_df("states_kmeans_clustered.csv")
-hier_df    = load_df("states_hierarchical_clustered.csv")
+arima     = load_arima()
+clust     = load_clustering()
+fuel_corr = load_fuel_correlation()
+overall   = load_df("overall_inflation.csv")
+cpi_div   = load_df("cpi_inflation_clean.csv")
+fuel_df   = load_df("fuelprice_clean.csv")
+kmeans_df = load_df("states_kmeans_clustered.csv")
+hier_df   = load_df("states_hierarchical_clustered.csv")
 
-overall["date"]  = pd.to_datetime(overall["date"])
-cpi_div["date"]  = pd.to_datetime(cpi_div["date"])
-fuel_df["date"]  = pd.to_datetime(fuel_df["date"])
+overall["date"] = pd.to_datetime(overall["date"])
+cpi_div["date"] = pd.to_datetime(cpi_div["date"])
+fuel_df["date"] = pd.to_datetime(fuel_df["date"])
+
+cpi_state = load_df("cpi_state_clean.csv")
+cpi_state["date"] = pd.to_datetime(cpi_state["date"])
+all_states = sorted(cpi_state["state"].unique().tolist())
 
 # ─── Tabs ────────────────────────────────────────────────────────────────────
 tab1, tab2, tab3, tab4 = st.tabs([
@@ -445,16 +662,11 @@ tab1, tab2, tab3, tab4 = st.tabs([
 # TAB 1 — OVERVIEW
 # ══════════════════════════════════════════════════════════════════════════════
 with tab1:
-    latest_row  = overall.sort_values("date").iloc[-1]
-    latest_fuel = fuel_df.dropna(subset=["avg_fuel"]).sort_values("date").iloc[-1]
-    cpi_state   = load_df("cpi_state_clean.csv")
-    cpi_state["date"] = pd.to_datetime(cpi_state["date"])
-    all_states  = sorted(cpi_state["state"].unique().tolist())
 
     # ── Project summary ──────────────────────────────────────────────────────
     with st.container(border=True):
         st.markdown("""
-        <p class="card-title" style="text-align:center">Project Summary</p>
+        <p class="card-title">Project Summary</p>
         <p class="card-desc">
           This system analyses Malaysia's Consumer Price Index (CPI) inflation across
           13 divisions and 16 states, applying <strong>ARIMA time series forecasting</strong>
@@ -465,51 +677,50 @@ with tab1:
         </p>
         """, unsafe_allow_html=True)
         c1, c2, c3, c4 = st.columns(4)
-        c1.metric("Latest YoY Inflation",    f"{latest_row['inflation_yoy']:.2f}%",
-                  help="Most recent year-on-year CPI inflation")
-        c2.metric("Latest MoM Inflation",    f"{latest_row['inflation_mom']:.2f}%",
-                  help="Most recent month-on-month CPI inflation")
-        c3.metric("Avg Fuel Price (latest)", f"RM {latest_fuel['avg_fuel']:.2f}",
-                  help="Average of RON95, RON97, Diesel (most recent month)")
-        c4.metric("Series Coverage",
-                  f"{overall['date'].min().year}–{overall['date'].max().year}",
-                  help="Overall inflation series date range")
+        c1.metric("States covered",         "16")
+        c2.metric("CPI divisions tracked",  "13")
+        c3.metric("State CPI data from",    "2010–")
+        c4.metric("Fuel price data from",   "2017–")
 
-    # ── National inflation trend ─────────────────────────────────────────────
+    # ── National CPI Inflation — dual-axis (YoY line + MoM bars) ────────────
     with st.container(border=True):
         st.markdown("""
         <p class="card-title">National CPI Inflation — Last 5 Years</p>
         <p class="card-desc">
-          Year-on-year (YoY) and month-on-month (MoM) national CPI inflation.
-          Green fill indicates deflation.
+          Year-on-year (YoY) national CPI inflation shown as a line;
+          month-on-month (MoM) changes as bars. Green bars indicate deflation months.
         </p>
         """, unsafe_allow_html=True)
 
-        unit  = st.radio("Inflation unit", ["Year-on-Year (%)", "Month-on-Month (%)"],
-                         horizontal=True, key="ov_unit")
-        y_col = "inflation_yoy" if "Year" in unit else "inflation_mom"
-        y_lbl = "YoY Inflation (%)" if "Year" in unit else "MoM Inflation (%)"
-
         cutoff5 = overall["date"].max() - pd.DateOffset(years=5)
-        recent5 = overall[overall["date"] >= cutoff5].sort_values("date")
+        r5 = overall[overall["date"] >= cutoff5].sort_values("date")
+        mom_colors = ["#22c55e" if v < 0 else "#e8523a" for v in r5["inflation_mom"].fillna(0)]
 
-        fig_trend = go.Figure()
-        fig_trend.add_trace(go.Scatter(
-            x=recent5["date"], y=recent5[y_col],
-            mode="lines", name=y_lbl,
+        fig_nat = go.Figure()
+        fig_nat.add_trace(go.Scatter(
+            x=r5["date"], y=r5["inflation_yoy"],
+            mode="lines", name="YoY Inflation (%)",
             line=dict(color="#1a3c6e", width=2.5),
-            fill="tozeroy", fillcolor="rgba(26,60,110,0.08)",
         ))
-        fig_trend.add_hline(y=0, line_dash="dot", line_color="#9ca3af", line_width=1)
-        fig_trend.update_layout(
-            xaxis_title="Date", yaxis_title=y_lbl,
-            height=360, margin=dict(l=0, r=0, t=10, b=0),
-            showlegend=False, hovermode="x unified",
+        fig_nat.add_trace(go.Bar(
+            x=r5["date"], y=r5["inflation_mom"],
+            name="MoM Inflation (%)", yaxis="y2",
+            marker=dict(color=mom_colors, opacity=0.6),
+        ))
+        fig_nat.add_hline(y=0, line_dash="dot", line_color="#9ca3af", line_width=1)
+        fig_nat.update_layout(
+            xaxis=dict(title="Date", tickformat="%b %Y"),
+            yaxis=dict(title="YoY Inflation (%)"),
+            yaxis2=dict(title="MoM Inflation (%)", overlaying="y", side="right",
+                        showgrid=False, zeroline=False),
+            height=380, margin=dict(l=0, r=64, t=10, b=0),
+            hovermode="x unified",
+            legend=dict(orientation="h", y=-0.22),
         )
-        _style(fig_trend)
-        st.plotly_chart(fig_trend, use_container_width=True)
+        _style(fig_nat)
+        st.plotly_chart(fig_nat, use_container_width=True)
 
-    # ── Division inflation trends ────────────────────────────────────────────
+    # ── CPI Inflation by Division — Last 3 Years ─────────────────────────────
     with st.container(border=True):
         st.markdown("""
         <p class="card-title">CPI Inflation by Division — Last 3 Years</p>
@@ -549,79 +760,62 @@ with tab1:
         _style(fig_div)
         st.plotly_chart(fig_div, use_container_width=True)
 
-    # ── State CPI explorer ───────────────────────────────────────────────────
+    # ── State CPI Index Explorer (single state dropdown) ──────────────────────
     with st.container(border=True):
         st.markdown("""
         <p class="card-title">State CPI Index Explorer</p>
         <p class="card-desc">
-          Monthly overall CPI index for selected states (2010–present).
+          Monthly overall CPI index for a selected state (2010–present).
           Base year: 2010 = 100. A rising index indicates cumulative price growth.
         </p>
         """, unsafe_allow_html=True)
 
-        sel_states = st.multiselect(
-            "Select states to compare", all_states,
-            default=all_states[:5] if len(all_states) >= 5 else all_states,
-            key="ov_state_sel",
-        )
-        if sel_states:
+        sel_state = st.selectbox("State", all_states, key="ov_state_sel")
+        grp_st = cpi_state[
+            (cpi_state["state"] == sel_state) & (cpi_state["division"] == "overall")
+        ].sort_values("date")
+        if not grp_st.empty:
             fig_st = go.Figure()
-            for i, state in enumerate(sel_states):
-                grp = cpi_state[
-                    (cpi_state["state"] == state) & (cpi_state["division"] == "overall")
-                ].sort_values("date")
-                fig_st.add_trace(go.Scatter(
-                    x=grp["date"], y=grp["index"],
-                    mode="lines", name=state,
-                    line=dict(width=1.8, color=_PLOTLY_COLORS[i % len(_PLOTLY_COLORS)]),
-                ))
+            fig_st.add_trace(go.Scatter(
+                x=grp_st["date"], y=grp_st["index"],
+                mode="lines", name=sel_state,
+                line=dict(color="#1a3c6e", width=2),
+                fill="tozeroy", fillcolor="rgba(26,60,110,0.07)",
+            ))
             fig_st.update_layout(
-                xaxis_title="Date", yaxis_title="CPI Index (Base 2010 = 100)",
-                height=380, margin=dict(l=0, r=0, t=10, b=0),
-                hovermode="x unified",
+                title=dict(text=f"CPI Index — {sel_state}",
+                           font=dict(size=13, color=_TEXT, family=_FONT_FAMILY)),
+                xaxis=dict(title="Date", tickformat="%b %Y"),
+                yaxis_title="CPI Index (Base 2010 = 100)",
+                height=340, margin=dict(l=0, r=20, t=40, b=0),
+                hovermode="x unified", showlegend=False,
             )
             _style(fig_st)
             st.plotly_chart(fig_st, use_container_width=True)
 
-    # ── State CPI map ────────────────────────────────────────────────────────
+    # ── State CPI Index Map (choropleth — mean CPI per state) ─────────────────
     with st.container(border=True):
         st.markdown("""
-        <p class="card-title">Malaysia State CPI Map — Latest Month</p>
+        <p class="card-title">State CPI Index Map</p>
         <p class="card-desc">
-          Geographic view of the latest overall CPI index across all 16 Malaysian states.
-          Bubble size and colour both reflect the CPI index value (Base 2010 = 100).
-          Hover a state for its exact index.
+          Mean CPI index per state (2010–present, base year 2010 = 100).
+          Darker shading indicates higher accumulated price levels.
+          Hover over a state for details.
         </p>
         """, unsafe_allow_html=True)
 
-        latest_cpi = (
+        mean_cpi_df = (
             cpi_state[cpi_state["division"] == "overall"]
-            .sort_values("date")
-            .groupby("state", as_index=False)
-            .last()
+            .groupby("state", as_index=False)["index"]
+            .mean()
+            .rename(columns={"index": "mean_cpi"})
         )
-        latest_cpi = _add_coords(latest_cpi)
-        if not latest_cpi.empty:
-            fig_cpi_map = px.scatter_geo(
-                latest_cpi, lat="lat", lon="lon",
-                color="index", size="index",
-                hover_name="state",
-                hover_data={"index": ":.1f", "lat": False, "lon": False, "date": True},
-                color_continuous_scale="Blues",
-                size_max=30,
-                labels={"index": "CPI Index"},
-            )
-            _geo_layout(fig_cpi_map, "Latest Overall CPI Index by State")
-            fig_cpi_map.update_coloraxes(
-                colorbar_title="CPI Index",
-                colorbar_tickfont=dict(color=_TEXT, family=_FONT_FAMILY),
-                colorbar_title_font=dict(color=_TEXT, family=_FONT_FAMILY),
-            )
+        geojson = load_malaysia_geojson()
+        if geojson is not None and not mean_cpi_df.empty:
+            fig_cpi_map = _make_choropleth_cpi(geojson, mean_cpi_df)
             st.plotly_chart(fig_cpi_map, use_container_width=True)
-            st.caption(
-                f"Reference month: {latest_cpi['date'].max().strftime('%B %Y')}  ·  "
-                "Base year 2010 = 100"
-            )
+        else:
+            st.info("Map unavailable — GeoJSON could not be loaded.")
 
 
 # ══════════════════════════════════════════════════════════════════════════════
@@ -630,8 +824,9 @@ with tab1:
 with tab2:
     order = arima.get("arima_order", ["?", "?", "?"])
     m     = arima.get("metrics", {})
+    s     = arima.get("stationarity", {})
 
-    # ── Forecast card ────────────────────────────────────────────────────────
+    # ── ARIMA Forecast card ───────────────────────────────────────────────────
     with st.container(border=True):
         st.markdown("""
         <p class="card-title">ARIMA National Inflation Forecast</p>
@@ -642,26 +837,53 @@ with tab2:
         </p>
         """, unsafe_allow_html=True)
 
-        c1, c2, c3, c4 = st.columns(4)
-        c1.metric("ARIMA Order",  f"({order[0]},{order[1]},{order[2]})")
-        c2.metric("Test MAE",     f"{m['MAE']:.4f}"    if m.get("MAE")  else "—")
-        c3.metric("Test RMSE",    f"{m['RMSE']:.4f}"   if m.get("RMSE") else "—")
-        c4.metric("BIC",          f"{arima['bic']:.1f}" if arima.get("bic") else "—")
+        # Horizon slider + run button
+        col_sl, col_rb = st.columns([4, 1])
+        with col_sl:
+            horizon = st.slider("Forecast horizon (months)", 1, 48, 48, key="ts_horizon")
+        with col_rb:
+            st.markdown("<div style='height:28px'></div>", unsafe_allow_html=True)
+            run_live = st.button("↺ Run Forecast", type="primary",
+                                 use_container_width=True, key="ts_run")
 
-        st.markdown("<div style='height:8px'></div>", unsafe_allow_html=True)
+        # Metric chips
+        stat_txt = "✅ Yes" if s.get("is_stationary") else "⚠ No"
+        st.markdown(f"""
+        <div class="metric-row">
+          <div class="metric-chip">MAE <strong>{m.get("MAE", "—")}</strong></div>
+          <div class="metric-chip">RMSE <strong>{m.get("RMSE", "—")}</strong></div>
+          <div class="metric-chip">sMAPE <strong>{"—" if m.get("sMAPE") is None else str(m["sMAPE"]) + "%"}</strong></div>
+          <div class="metric-chip">MASE <strong>{m.get("MASE", "—")}</strong></div>
+          <div class="metric-chip">AIC <strong>{arima.get("aic", "—")}</strong></div>
+          <div class="metric-chip">BIC <strong>{arima.get("bic", "—")}</strong></div>
+          <div class="metric-chip">ADF p-value <strong>{s.get("p_value", "—")}</strong></div>
+          <div class="metric-chip">Stationary <strong>{stat_txt}</strong></div>
+        </div>
+        """, unsafe_allow_html=True)
 
-    # ── Forecast chart ───────────────────────────────────────────────────────
-    with st.container(border=True):
-        train_dates = pd.to_datetime(arima["train"]["dates"])
-        train_vals  = np.array(arima["train"]["values"])
-        cutoff10    = train_dates.max() - pd.DateOffset(years=10)
-        mask10      = train_dates >= cutoff10
+        # Build forecast figure (precomputed or live)
+        arima_src = arima
+        if run_live:
+            with st.spinner("Computing forecast…"):
+                from src.time_series import run_live as _run_live
+                inf_df = load_df("overall_inflation.csv").copy()
+                inf_df["date"] = pd.to_datetime(inf_df["date"])
+                precomp_order = tuple(int(x) for x in order) if order else None
+                for event in _run_live(inf_df, horizon=horizon,
+                                       order=precomp_order, precomputed=arima):
+                    if event.get("type") == "result":
+                        arima_src = event
+                        break
 
-        test_dates = pd.to_datetime(arima["test"]["dates"])
-        fc_dates   = pd.to_datetime(arima["forecast"]["dates"])
-        fc_lower   = list(arima["forecast"]["lower"])
-        fc_upper   = list(arima["forecast"]["upper"])
-        fc_dates_l = list(fc_dates)
+        train_dates = pd.to_datetime(arima_src["train"]["dates"])
+        train_vals  = np.array(arima_src["train"]["values"])
+        cut10       = train_dates.max() - pd.DateOffset(years=10)
+        mask10      = train_dates >= cut10
+        test_dates  = pd.to_datetime(arima_src["test"]["dates"])
+        fc_dates    = pd.to_datetime(arima_src["forecast"]["dates"])
+        fc_lower    = list(arima_src["forecast"]["lower"])
+        fc_upper    = list(arima_src["forecast"]["upper"])
+        fc_dates_l  = list(fc_dates)
 
         fig_fc = go.Figure()
         fig_fc.add_trace(go.Scatter(
@@ -670,15 +892,15 @@ with tab2:
             line=dict(color="#1a3c6e", width=1.5),
         ))
         fig_fc.add_trace(go.Scatter(
-            x=test_dates, y=arima["test"]["actual"],
+            x=test_dates, y=arima_src["test"]["actual"],
             mode="lines+markers", name="Actual (test)",
-            marker=dict(size=5, color="#22c55e"),
+            marker=dict(size=6, color="#22c55e"),
             line=dict(color="#22c55e", width=2),
         ))
         fig_fc.add_trace(go.Scatter(
-            x=test_dates, y=arima["test"]["predicted"],
+            x=test_dates, y=arima_src["test"]["predicted"],
             mode="lines+markers", name="Predicted (test)",
-            marker=dict(size=5, color="#ef4444", symbol="diamond"),
+            marker=dict(size=6, color="#ef4444", symbol="diamond"),
             line=dict(color="#ef4444", dash="dash", width=2),
         ))
         fig_fc.add_trace(go.Scatter(
@@ -689,30 +911,34 @@ with tab2:
             name="95% CI", hoverinfo="skip",
         ))
         fig_fc.add_trace(go.Scatter(
-            x=fc_dates, y=arima["forecast"]["values"],
+            x=fc_dates, y=arima_src["forecast"]["values"],
             mode="lines+markers", name=f"Forecast ({len(fc_dates)}m)",
-            marker=dict(size=6, symbol="triangle-up", color="#a855f7"),
+            marker=dict(size=7, symbol="triangle-up", color="#a855f7"),
             line=dict(color="#a855f7", dash="dot", width=2.5),
         ))
         fig_fc.add_hline(y=0, line_dash="dot", line_color="#9ca3af", line_width=0.8)
-        fig_fc.add_vline(
-            x=str(test_dates[0].date()),
-            line_dash="dot", line_color="#9ca3af", line_width=1,
-            annotation_text="test split", annotation_position="top left",
-            annotation_font_size=10,
-        )
+        if len(test_dates):
+            fig_fc.add_vline(
+                x=str(test_dates[0].date()),
+                line_dash="dot", line_color="#9ca3af", line_width=1,
+                annotation_text="test split", annotation_position="top left",
+                annotation_font_size=10,
+            )
         fig_fc.update_layout(
-            title=dict(text=f"National CPI Inflation Forecast — ARIMA({order[0]},{order[1]},{order[2]})",
-                       font=dict(color=_TEXT, size=13, family=_FONT_FAMILY)),
-            xaxis_title="Date", yaxis_title="CPI Inflation YoY (%)",
-            height=480, margin=dict(l=0, r=0, t=40, b=0),
+            title=dict(
+                text=f"National CPI Inflation Forecast — ARIMA({order[0]},{order[1]},{order[2]})",
+                font=dict(color=_TEXT, size=13, family=_FONT_FAMILY),
+            ),
+            xaxis=dict(title="Date", tickformat="%b %Y"),
+            yaxis_title="CPI Inflation YoY (%)",
+            height=480, margin=dict(l=0, r=0, t=48, b=0),
             hovermode="x unified",
             legend=dict(orientation="h", y=-0.22),
         )
         _style(fig_fc)
         st.plotly_chart(fig_fc, use_container_width=True)
 
-    # ── Evaluation metrics table ─────────────────────────────────────────────
+    # ── Evaluation Metrics table ──────────────────────────────────────────────
     ts_metrics_csv = os.path.join(MODELS_DIR, "ts_metrics_summary.csv")
     if os.path.exists(ts_metrics_csv):
         with st.container(border=True):
@@ -722,158 +948,69 @@ with tab2:
             """, unsafe_allow_html=True)
             st.dataframe(pd.read_csv(ts_metrics_csv), use_container_width=True, hide_index=True)
 
-    # ── Division trends figure ───────────────────────────────────────────────
-    div_trends_png = os.path.join(FIGURES_DIR, "ts_division_trends.png")
-    if os.path.exists(div_trends_png):
-        with st.expander("CPI Division Inflation Trends (pre-generated figure)"):
-            st.image(div_trends_png, use_container_width=True)
-
-    # ── Live ARIMA ───────────────────────────────────────────────────────────
-    with st.container(border=True):
-        st.markdown("""
-        <p class="card-title">Live ARIMA Forecast</p>
-        <p class="card-desc">
-          Re-run ARIMA with a custom forecast horizon using the pre-computed order and model.
-        </p>
-        """, unsafe_allow_html=True)
-
-        horizon = st.slider("Forecast horizon (months)", 6, 48, 24, key="live_horizon")
-        if st.button("↺  Run Forecast", type="primary", key="live_run"):
-            with st.spinner("Computing forecast…"):
-                from src.time_series import run_live
-
-                inf_df = load_df("overall_inflation.csv").copy()
-                inf_df["date"] = pd.to_datetime(inf_df["date"])
-
-                order_list    = arima.get("arima_order") or arima.get("order")
-                precomp_order = tuple(int(x) for x in order_list) if order_list else None
-
-                result_event: dict | None = None
-                for event in run_live(inf_df, horizon=horizon,
-                                      order=precomp_order, precomputed=arima):
-                    if event.get("type") == "result":
-                        result_event = event
-
-            if result_event:
-                fc2      = result_event
-                h_dates  = pd.to_datetime(fc2["train"]["dates"])
-                h_vals   = np.array(fc2["train"]["values"])
-                cut_live = h_dates.max() - pd.DateOffset(years=5)
-                m_live   = h_dates >= cut_live
-                fc2d     = pd.to_datetime(fc2["forecast"]["dates"])
-                fc2dl    = list(fc2d)
-
-                fig_live = go.Figure()
-                fig_live.add_trace(go.Scatter(
-                    x=h_dates[m_live], y=h_vals[m_live],
-                    mode="lines", name="Historical",
-                    line=dict(color="#1a3c6e", width=1.5),
-                ))
-                fig_live.add_trace(go.Scatter(
-                    x=fc2d, y=fc2["forecast"]["values"],
-                    mode="lines+markers", name=f"Forecast ({horizon}m)",
-                    marker=dict(size=5, symbol="triangle-up", color="#a855f7"),
-                    line=dict(color="#a855f7", width=2),
-                ))
-                fig_live.add_trace(go.Scatter(
-                    x=fc2dl + fc2dl[::-1],
-                    y=list(fc2["forecast"]["upper"]) + list(fc2["forecast"]["lower"])[::-1],
-                    fill="toself", fillcolor="rgba(168,85,247,0.13)",
-                    line=dict(color="rgba(0,0,0,0)"), name="95% CI",
-                ))
-                fig_live.add_hline(y=0, line_dash="dot", line_color="#9ca3af", line_width=0.8)
-                fig_live.update_layout(
-                    title=dict(text=f"Live ARIMA — {horizon}-Month Forecast",
-                               font=dict(color=_TEXT, size=13, family=_FONT_FAMILY)),
-                    xaxis_title="Date", yaxis_title="Inflation YoY (%)",
-                    height=380, margin=dict(l=0, r=0, t=40, b=0),
-                )
-                _style(fig_live)
-                st.plotly_chart(fig_live, use_container_width=True)
-
 
 # ══════════════════════════════════════════════════════════════════════════════
 # TAB 3 — CLUSTERING
 # ══════════════════════════════════════════════════════════════════════════════
 with tab3:
-    # ── Cluster explorer + table ─────────────────────────────────────────────
+    pca_var  = clust.get("pca_variance", [])
+    best_k   = clust.get("best_k")
+    elbow    = clust.get("elbow_metrics", {})
+    dendro   = clust.get("dendrogram", {})
+
+    # ── State Cluster Explorer (interactive scatter + axis selectors) ──────────
     with st.container(border=True):
         st.markdown("""
         <p class="card-title">State Cluster Explorer</p>
         <p class="card-desc">
           16 Malaysian states clustered by 5 features: mean CPI index, CPI volatility,
           CPI growth rate, latest mean household income, and latest median household income.
-          Optimal k selected via Silhouette score.
+          Optimal k selected via Silhouette score. Each point is labelled with the state name.
         </p>
         """, unsafe_allow_html=True)
 
-        method      = st.radio("Clustering method", ["K-Means", "Hierarchical"],
-                               horizontal=True, key="cl_method")
-        cluster_df  = kmeans_df  if method == "K-Means" else hier_df
-        cluster_col = "kmeans_cluster" if method == "K-Means" else "hier_cluster"
+        feat_names = list(_FEATURE_OPTS.keys())
+        feat_keys  = list(_FEATURE_OPTS.values())
+        col_x, col_y, col_m = st.columns([2, 2, 1])
+        with col_x:
+            x_sel = st.selectbox("X Axis", feat_names,
+                                 index=feat_names.index("Mean Household Income"),
+                                 key="cl_x")
+        with col_y:
+            y_sel = st.selectbox("Y Axis", feat_names,
+                                 index=feat_names.index("CPI Growth Rate"),
+                                 key="cl_y")
+        with col_m:
+            st.markdown("<div style='height:28px'></div>", unsafe_allow_html=True)
+            method = st.radio("Method", ["K-Means", "Hierarchical"],
+                              horizontal=False, key="cl_method")
 
-        disp_cols = [c for c in cluster_df.columns if c.lower() not in ("lat", "lon")]
-        st.dataframe(cluster_df[disp_cols], use_container_width=True, hide_index=True)
+        cluster_df = kmeans_df if method == "K-Means" else hier_df
+        fig_scatter = _make_cluster_scatter(
+            cluster_df, _FEATURE_OPTS[x_sel], _FEATURE_OPTS[y_sel]
+        )
+        st.plotly_chart(fig_scatter, use_container_width=True)
+        st.caption("Each dot is a Malaysian state, coloured by cluster assignment.")
 
-    # ── Cluster map ──────────────────────────────────────────────────────────
+    # ── Malaysia State Cluster Map (choropleth) ───────────────────────────────
     with st.container(border=True):
         st.markdown("""
         <p class="card-title">Malaysia State Cluster Map</p>
         <p class="card-desc">
-          Geographic distribution of cluster assignments across all 16 Malaysian states.
+          Geographic distribution of K-Means cluster assignments across all 16 Malaysian states.
           Each state is coloured by its cluster. Hover for income and CPI details.
+          W.P. Labuan (island off Sabah) may not be shown on the map.
         </p>
         """, unsafe_allow_html=True)
 
-        if cluster_col in cluster_df.columns:
-            map_df = _add_coords(cluster_df)
-            if not map_df.empty:
-                map_df["Cluster"] = map_df[cluster_col].astype(str)
-                hover_extra = {c: True for c in disp_cols if c not in ("state", cluster_col)}
-                fig_map = px.scatter_geo(
-                    map_df, lat="lat", lon="lon",
-                    color="Cluster", hover_name="state", hover_data=hover_extra,
-                    size_max=20, opacity=0.88,
-                    color_discrete_sequence=_PALETTE,
-                )
-                _geo_layout(fig_map, f"{method} Cluster Map — Malaysian States")
-                st.plotly_chart(fig_map, use_container_width=True)
+        geojson = load_malaysia_geojson()
+        if geojson is not None:
+            fig_cmap = _make_choropleth_cluster(geojson, cluster_df)
+            st.plotly_chart(fig_cmap, use_container_width=True)
+        else:
+            st.info("Map unavailable — GeoJSON could not be loaded.")
 
-    # ── Elbow + PCA figures ──────────────────────────────────────────────────
-    col_a, col_b = st.columns(2)
-    with col_a:
-        with st.container(border=True):
-            st.markdown('<p class="card-title">Elbow + Silhouette Method</p>',
-                        unsafe_allow_html=True)
-            p = os.path.join(FIGURES_DIR, "cluster_elbow_silhouette.png")
-            if os.path.exists(p):
-                st.image(p, use_container_width=True)
-    with col_b:
-        pca_file = "cluster_pca_kmeans.png" if method == "K-Means" else "cluster_pca_hierarchical.png"
-        with st.container(border=True):
-            st.markdown(f'<p class="card-title">{method} — PCA Projection</p>',
-                        unsafe_allow_html=True)
-            p = os.path.join(FIGURES_DIR, pca_file)
-            if os.path.exists(p):
-                st.image(p, use_container_width=True)
-
-    col_c, col_d = st.columns(2)
-    with col_c:
-        with st.container(border=True):
-            st.markdown('<p class="card-title">Hierarchical Clustering — Dendrogram</p>',
-                        unsafe_allow_html=True)
-            p = os.path.join(FIGURES_DIR, "cluster_dendrogram.png")
-            if os.path.exists(p):
-                st.image(p, use_container_width=True)
-    with col_d:
-        with st.container(border=True):
-            st.markdown('<p class="card-title">Cluster Socioeconomic Profiles</p>',
-                        unsafe_allow_html=True)
-            p = os.path.join(FIGURES_DIR, "cluster_profiles.png")
-            if os.path.exists(p):
-                st.image(p, use_container_width=True)
-
-    # ── Clustering evaluation metrics ────────────────────────────────────────
+    # ── Clustering Evaluation Metrics ─────────────────────────────────────────
     with st.container(border=True):
         st.markdown("""
         <p class="card-title">Clustering Evaluation Metrics</p>
@@ -882,37 +1019,63 @@ with tab3:
           Higher Silhouette and Calinski-Harabász are better; lower Davies-Bouldin is better.
         </p>
         """, unsafe_allow_html=True)
-
         cm_path = os.path.join(MODELS_DIR, "cluster_metrics_summary.csv")
         if os.path.exists(cm_path):
             st.dataframe(pd.read_csv(cm_path), use_container_width=True, hide_index=True)
+        if best_k:
+            st.success(f"Selected K = {best_k}  (best silhouette score)", icon="✅")
 
-    # ── Elbow metrics table ──────────────────────────────────────────────────
-    elbow = clust.get("elbow_metrics", {})
-    if elbow:
+    # ── Elbow + Silhouette  |  K-Means PCA Projection ────────────────────────
+    col_a, col_b = st.columns(2)
+    with col_a:
         with st.container(border=True):
-            st.markdown("""
-            <p class="card-title">Elbow / Silhouette / Davies-Bouldin Metrics</p>
-            """, unsafe_allow_html=True)
-            k_range = elbow.get("k_range", [])
-            if k_range:
-                elbw_df = pd.DataFrame({
-                    "K":              k_range,
-                    "Inertia":        elbow.get("inertias",    [None] * len(k_range)),
-                    "Silhouette":     elbow.get("silhouettes", [None] * len(k_range)),
-                    "Davies-Bouldin": elbow.get("db_scores",   [None] * len(k_range)),
-                })
-                st.dataframe(elbw_df, use_container_width=True, hide_index=True)
-            best_k = clust.get("best_k")
-            if best_k:
-                st.success(f"Selected K = {best_k}  (best silhouette score)", icon="✅")
+            st.markdown('<p class="card-title">Elbow + Silhouette Method</p>',
+                        unsafe_allow_html=True)
+            if elbow:
+                st.plotly_chart(_make_elbow_chart(elbow, best_k), use_container_width=True)
+    with col_b:
+        with st.container(border=True):
+            pca_title = f"{method} — PCA Projection"
+            st.markdown(f'<p class="card-title">{pca_title}</p>', unsafe_allow_html=True)
+            fig_pca = _make_pca_scatter(cluster_df, pca_title, pca_var)
+            if fig_pca:
+                st.plotly_chart(fig_pca, use_container_width=True)
+
+    # ── Hierarchical PCA  |  Cluster Socioeconomic Profiles ──────────────────
+    col_c, col_d = st.columns(2)
+    with col_c:
+        with st.container(border=True):
+            st.markdown('<p class="card-title">Hierarchical — PCA Projection</p>',
+                        unsafe_allow_html=True)
+            fig_hpca = _make_pca_scatter(hier_df, "Hierarchical Clusters — PCA Projection",
+                                         pca_var)
+            if fig_hpca:
+                st.plotly_chart(fig_hpca, use_container_width=True)
+    with col_d:
+        with st.container(border=True):
+            st.markdown('<p class="card-title">Cluster Socioeconomic Profiles</p>',
+                        unsafe_allow_html=True)
+            st.plotly_chart(_make_profiles_heatmap(cluster_df), use_container_width=True)
+
+    # ── Hierarchical Clustering — Dendrogram ──────────────────────────────────
+    with st.container(border=True):
+        st.markdown("""
+        <p class="card-title">Hierarchical Clustering — Dendrogram</p>
+        """, unsafe_allow_html=True)
+        if dendro:
+            st.plotly_chart(_make_dendrogram(dendro), use_container_width=True)
+        else:
+            p = os.path.join(FIGURES_DIR, "cluster_dendrogram.png")
+            if os.path.exists(p):
+                st.image(p, use_container_width=True)
 
 
 # ══════════════════════════════════════════════════════════════════════════════
 # TAB 4 — FUEL ANALYSIS
 # ══════════════════════════════════════════════════════════════════════════════
 with tab4:
-    # ── Fuel price trend ─────────────────────────────────────────────────────
+
+    # ── Retail Fuel Prices ────────────────────────────────────────────────────
     with st.container(border=True):
         st.markdown("""
         <p class="card-title">Retail Fuel Prices — Monthly Average</p>
@@ -938,14 +1101,15 @@ with tab4:
                               dash="dot" if col == "avg_fuel" else "solid"),
                 ))
         fig_fuel.update_layout(
-            xaxis_title="Date", yaxis_title="Price (RM / litre)",
+            xaxis=dict(title="Date", tickformat="%b %Y"),
+            yaxis_title="Price (RM / litre)",
             height=380, margin=dict(l=0, r=0, t=10, b=0),
             hovermode="x unified", legend=dict(orientation="h", y=-0.22),
         )
         _style(fig_fuel)
         st.plotly_chart(fig_fuel, use_container_width=True)
 
-    # ── Fuel-inflation correlation ────────────────────────────────────────────
+    # ── Fuel-Inflation Correlation ────────────────────────────────────────────
     if fuel_corr:
         with st.container(border=True):
             st.markdown("""
@@ -954,7 +1118,19 @@ with tab4:
               Pearson correlation between monthly fuel prices and national CPI YoY inflation.
               <strong>Contemporaneous:</strong> same month.
               <strong>Lag-1:</strong> fuel price leads inflation by one month.
+              Values closer to ±1 indicate stronger linear association.
             </p>
+            """, unsafe_allow_html=True)
+
+            st.markdown(f"""
+            <div class="metric-row">
+              <div class="metric-chip">Overlap period
+                <strong>{fuel_corr.get("overlap_start","—")} → {fuel_corr.get("overlap_end","—")}</strong>
+              </div>
+              <div class="metric-chip">Months of overlap
+                <strong>{fuel_corr.get("n_overlap_months","—")}</strong>
+              </div>
+            </div>
             """, unsafe_allow_html=True)
 
             corr    = fuel_corr["correlations"]
@@ -984,12 +1160,8 @@ with tab4:
             )
             _style(fig_corr)
             st.plotly_chart(fig_corr, use_container_width=True)
-            st.caption(
-                f"Based on {fuel_corr['n_overlap_months']} overlapping months "
-                f"({fuel_corr['overlap_start']} → {fuel_corr['overlap_end']})"
-            )
 
-    # ── ARIMAX experiment ─────────────────────────────────────────────────────
+    # ── ARIMAX vs ARIMA ───────────────────────────────────────────────────────
     exog_exp = arima.get("fuel_exog_experiment", {})
     if exog_exp.get("available"):
         with st.container(border=True):
@@ -998,41 +1170,49 @@ with tab4:
             <p class="card-desc">
               Correlation shows association; this tests <strong>predictive value</strong>.
               Two models are fit on the fuel/CPI overlap window and evaluated on the same
-              held-out test period. A lower RMSE for ARIMAX means fuel adds genuine
-              forecasting signal.
+              held-out test period: <strong>ARIMAX</strong> (fuel as an exogenous regressor)
+              vs a univariate <strong>ARIMA</strong>. A lower RMSE for ARIMAX means fuel adds
+              genuine forecasting signal.
             </p>
             """, unsafe_allow_html=True)
 
             ex_m = exog_exp.get("arimax_metrics", {})
             ar_m = exog_exp.get("arima_metrics",  {})
             pct  = exog_exp.get("rmse_improvement_pct", 0.0)
-
-            c1, c2, c3 = st.columns(3)
-            c1.metric("ARIMAX RMSE",           f"{ex_m['RMSE']:.4f}" if ex_m.get("RMSE") else "—")
-            c2.metric("Univariate ARIMA RMSE", f"{ar_m['RMSE']:.4f}" if ar_m.get("RMSE") else "—")
-            c3.metric("RMSE Improvement", f"{pct:+.2f}%",
-                      help="Positive = ARIMAX beats univariate ARIMA; negative = univariate wins")
+            coef = (exog_exp.get("exog_coefficients") or {}).get("avg_fuel", {})
+            gain_cls = "dc-up" if pct >= 0 else "dc-down"
+            st.markdown(f"""
+            <div class="metric-row">
+              <div class="metric-chip">Overlap
+                <strong>{exog_exp.get("overlap_start","—")} → {exog_exp.get("overlap_end","—")}</strong>
+              </div>
+              <div class="metric-chip">RMSE change from fuel
+                <strong class="{gain_cls}">{"+" if pct >= 0 else ""}{pct}%</strong>
+              </div>
+              <div class="metric-chip">avg_fuel coef
+                <strong>{coef.get("coef","—")}</strong> (p={coef.get("pvalue","—")})
+              </div>
+            </div>
+            """, unsafe_allow_html=True)
 
             fig_exog = go.Figure()
-            fig_exog.add_trace(go.Bar(
-                name="ARIMAX (with fuel)", x=["RMSE", "MAE", "MASE"],
-                y=[ex_m.get("RMSE"), ex_m.get("MAE"), ex_m.get("MASE")],
-                marker_color="#1a3c6e",
-                text=[f"{v:.4f}" if v else "" for v in [ex_m.get("RMSE"), ex_m.get("MAE"), ex_m.get("MASE")]],
-                textposition="auto",
-            ))
-            fig_exog.add_trace(go.Bar(
-                name="ARIMA (univariate)", x=["RMSE", "MAE", "MASE"],
-                y=[ar_m.get("RMSE"), ar_m.get("MAE"), ar_m.get("MASE")],
-                marker_color="#e8523a", opacity=0.8,
-                text=[f"{v:.4f}" if v else "" for v in [ar_m.get("RMSE"), ar_m.get("MAE"), ar_m.get("MASE")]],
-                textposition="auto",
-            ))
+            for name, metrics, color in [
+                ("ARIMAX (with fuel)", ex_m, "#1a3c6e"),
+                ("ARIMA (univariate)", ar_m, "#e8523a"),
+            ]:
+                vals = [metrics.get(k) for k in ("RMSE", "MAE", "MASE")]
+                fig_exog.add_trace(go.Bar(
+                    name=name, x=["RMSE", "MAE", "MASE"], y=vals,
+                    marker_color=color,
+                    text=[f"{v:.4f}" if v else "" for v in vals],
+                    textposition="auto",
+                    opacity=0.85 if name.startswith("ARIMA (") else 1.0,
+                ))
             fig_exog.update_layout(
                 title=dict(text="Test-set error: fuel-augmented vs univariate (lower = better)",
-                           font=dict(color=_TEXT, size=13, family=_FONT_FAMILY)),
+                           font=dict(color=_TEXT, size=12, family=_FONT_FAMILY)),
                 yaxis_title="Error", barmode="group",
-                height=340, margin=dict(l=0, r=0, t=40, b=0),
+                height=340, margin=dict(l=0, r=0, t=44, b=0),
                 legend=dict(orientation="h", y=-0.22),
             )
             _style(fig_exog)
@@ -1040,29 +1220,30 @@ with tab4:
 
             coefs = exog_exp.get("exog_coefficients", {})
             if coefs:
-                st.markdown('<p class="card-title" style="color:#1a3c6e;font-weight:700;margin-top:16px;">'
-                            'Fuel Price Coefficient (full-window refit)</p>', unsafe_allow_html=True)
+                st.markdown('<p class="card-title" style="margin-top:16px;">'
+                            'Fuel Price Coefficient (full-window refit)</p>',
+                            unsafe_allow_html=True)
                 coef_rows = [
                     {
-                        "Variable":               col,
-                        "Coefficient":            vals.get("coef"),
-                        "p-value":                vals.get("pvalue"),
-                        "Significant (p<0.05)":   "Yes" if (vals.get("pvalue") or 1.0) < 0.05 else "No",
+                        "Variable":             col,
+                        "Coefficient":          vals.get("coef"),
+                        "p-value":              vals.get("pvalue"),
+                        "Significant (p<0.05)": "Yes" if (vals.get("pvalue") or 1.0) < 0.05 else "No",
                     }
                     for col, vals in coefs.items()
                 ]
                 st.dataframe(pd.DataFrame(coef_rows), use_container_width=True, hide_index=True)
-
             st.caption(
                 f"ARIMAX order {tuple(exog_exp.get('order', []))} · "
                 f"test horizon {exog_exp.get('test_months')} months · "
-                f"{exog_exp.get('n_overlap_months', '?')} overlapping months used."
+                f"{exog_exp.get('n_overlap_months','?')} overlapping months used."
             )
 
     elif exog_exp:
         st.info(f"ARIMAX experiment not available: {exog_exp.get('reason', 'unknown reason')}")
     else:
         st.info("ARIMAX experiment data not found — re-run the pipeline.")
+
 
 # ─── Footer ──────────────────────────────────────────────────────────────────
 st.markdown("""
