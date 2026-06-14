@@ -361,6 +361,18 @@
     </div>
   </div>
 
+  <div class="card">
+    <h2>State CPI Index Map</h2>
+    <p class="desc">
+      Mean CPI index per state (2010–present, base year 2010 = 100). Darker shading indicates
+      higher accumulated price levels. Hover over a state for details.
+    </p>
+    <div class="chart-wrap">
+      <button class="fullscreen-btn" onclick="toggleFullscreen(this)">⛶</button>
+      <div id="chart-overview-map" style="height:420px;"></div>
+    </div>
+  </div>
+
 </div><!-- /tab-overview -->
 
 <!-- ══════════════════════ TIME SERIES ══════════════════════ -->
@@ -477,6 +489,19 @@
         <div id="state-detail-chips"></div>
         <div id="chart-state-detail-bar" style="height:300px;"></div>
       </div>
+    </div>
+  </div>
+
+  <div class="card">
+    <h2>Malaysia State Cluster Map</h2>
+    <p class="desc">
+      Geographic distribution of K-Means cluster assignments across all 16 Malaysian states.
+      Each state is coloured by its cluster. Hover for income and CPI details.
+      W.P. Labuan (island off Sabah) is not shown on the map.
+    </p>
+    <div class="chart-wrap">
+      <button class="fullscreen-btn" onclick="toggleFullscreen(this)">⛶</button>
+      <div id="chart-cluster-map" style="height:440px;"></div>
     </div>
   </div>
 
@@ -1244,6 +1269,113 @@ function closeStateDetail() {
   document.getElementById('state-detail-panel').classList.remove('visible');
 }
 
+// ─── Malaysia state maps ──────────────────────────────────────────────────────
+const MY_NAME_MAP = {
+  'Pulau Pinang':      'Penang',
+  'W.P. Kuala Lumpur': 'Federal Territory of Kuala Lumpur',
+  'W.P. Putrajaya':    'Federal Territory of Putrajaya',
+};
+const MY_GEOJSON_URL = 'https://raw.githubusercontent.com/codeforgermany/click_that_hood/main/public/data/malaysia.geojson';
+let _myGeoJson = null;
+
+async function _fetchMalaysiaGeoJson() {
+  if (_myGeoJson) return _myGeoJson;
+  const res = await fetch(MY_GEOJSON_URL);
+  _myGeoJson = await res.json();
+  return _myGeoJson;
+}
+
+const MY_GEO_LAYOUT = {
+  fitbounds: 'locations',
+  visible: false,
+  bgcolor: 'rgba(248,250,252,1)',
+  showland: true, landcolor: '#f1f5f9',
+  showocean: true, oceancolor: '#e0f2fe',
+  showcoastlines: true, coastlinecolor: '#94a3b8',
+  showframe: false,
+  lataxis: { range: [0.5, 8.5] },
+  lonaxis: { range: [98.5, 120.5] },
+};
+
+async function loadCPIMap() {
+  const [geojson, stateData] = await Promise.all([
+    _fetchMalaysiaGeoJson(),
+    fetch('/api/cluster/states').then(r => r.json()),
+  ]);
+  const locations = [], zVals = [], hoverText = [];
+  stateData.forEach(d => {
+    const geoName = MY_NAME_MAP[d.state] || d.state;
+    locations.push(geoName);
+    zVals.push(d.mean_cpi_index);
+    hoverText.push(
+      `<b>${d.state}</b><br>` +
+      `Mean CPI Index: ${d.mean_cpi_index.toFixed(1)}<br>` +
+      `CPI Growth Rate: ${(d.cpi_growth_rate * 100).toFixed(2)}%<br>` +
+      `CPI Volatility: ${d.cpi_volatility.toFixed(3)}`
+    );
+  });
+  Plotly.newPlot('chart-overview-map', [{
+    type: 'choropleth', geojson, featureidkey: 'properties.name',
+    locations, z: zVals, text: hoverText, hoverinfo: 'text',
+    colorscale: 'YlOrRd',
+    colorbar: { title: { text: 'CPI Index', side: 'right' }, thickness: 14, len: 0.6 },
+    marker: { line: { color: '#fff', width: 0.8 } },
+  }], {
+    geo: MY_GEO_LAYOUT,
+    margin: { t: 0, b: 0, l: 0, r: 60 },
+    paper_bgcolor: 'rgba(0,0,0,0)',
+  }, { displayModeBar: false, responsive: true });
+}
+
+async function loadClusterMap() {
+  const [geojson, stateData] = await Promise.all([
+    _fetchMalaysiaGeoJson(),
+    fetch('/api/cluster/states').then(r => r.json()),
+  ]);
+  const labels = [...new Set(stateData.map(d => d.cluster_label))].sort();
+  const n = labels.length;
+  const labelIndex = Object.fromEntries(labels.map((l, i) => [l, i]));
+
+  // Discrete colorscale: each band covers 1/n of [0,1]
+  const colorscale = [];
+  labels.forEach((_, i) => {
+    const c = PALETTE[i % PALETTE.length];
+    colorscale.push([i / n,       c]);
+    colorscale.push([(i + 1) / n, c]);
+  });
+
+  const locations = [], zVals = [], hoverText = [];
+  stateData.forEach(d => {
+    const geoName = MY_NAME_MAP[d.state] || d.state;
+    locations.push(geoName);
+    zVals.push(labelIndex[d.cluster_label]);
+    hoverText.push(
+      `<b>${d.state}</b><br>` +
+      `Cluster: ${d.cluster_label}<br>` +
+      `Mean Income: RM ${(d.income_mean_latest).toLocaleString()}<br>` +
+      `CPI Growth: ${(d.cpi_growth_rate * 100).toFixed(2)}%`
+    );
+  });
+
+  Plotly.newPlot('chart-cluster-map', [{
+    type: 'choropleth', geojson, featureidkey: 'properties.name',
+    locations, z: zVals, text: hoverText, hoverinfo: 'text',
+    colorscale, zmin: 0, zmax: n - 1,
+    colorbar: {
+      title: { text: 'Cluster', side: 'right' },
+      thickness: 14, len: 0.6,
+      tickvals: labels.map((_, i) => i + 0.5),
+      ticktext: labels,
+      nticks: n,
+    },
+    marker: { line: { color: '#fff', width: 0.8 } },
+  }], {
+    geo: MY_GEO_LAYOUT,
+    margin: { t: 0, b: 0, l: 0, r: 140 },
+    paper_bgcolor: 'rgba(0,0,0,0)',
+  }, { displayModeBar: false, responsive: true });
+}
+
 async function loadClusterMetrics() {
   const res = await fetch('/api/cluster/metrics');
   if (!res.ok) return;
@@ -1484,6 +1616,7 @@ document.addEventListener('fullscreenchange', () => {
   try { await loadNationalInflation(); }  catch (_) {}
   try { await loadDivisionTrends(); }     catch (_) {}
   try { await loadStateCPIStates(); }     catch (_) {}
+  try { await loadCPIMap(); }             catch (_) {}
 
   // Time series: load pre-computed result first (fast), metrics table
   try { await loadPrecomputedForecast(); } catch (_) {}
@@ -1492,6 +1625,7 @@ document.addEventListener('fullscreenchange', () => {
   // Clustering
   try { await loadClusterElbow(); }        catch (_) {}
   try { await loadClusterChart(); }        catch (_) {}
+  try { await loadClusterMap(); }          catch (_) {}
   try { await loadClusterHierarchical(); } catch (_) {}
   try { await loadClusterDendrogram(); }   catch (_) {}
   try { await loadClusterMetrics(); }      catch (_) {}
