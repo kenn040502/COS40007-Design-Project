@@ -216,9 +216,60 @@ hr { border-color: #d1d5db !important; margin: 1rem 0 !important; }
 /* ── Slider label ── */
 [data-testid="stSlider"] label { color: #1e2330 !important; }
 
-/* ── Multiselect / select label ── */
-[data-testid="stMultiSelect"] label { color: #1e2330 !important; }
-[data-testid="stSelectbox"] label   { color: #1e2330 !important; }
+/* ── Selectbox + Multiselect — full light theme ── */
+[data-testid="stMultiSelect"] label,
+[data-testid="stSelectbox"] label { color: #1e2330 !important; }
+
+/* Selectbox trigger box */
+[data-testid="stSelectbox"] > div > div,
+[data-testid="stSelectbox"] > div > div > div {
+  background-color: #ffffff !important;
+  border-color: #d1d5db !important;
+  color: #1e2330 !important;
+}
+/* Combobox input text */
+[data-testid="stSelectbox"] input[role="combobox"],
+[data-testid="stSelectbox"] input {
+  background-color: #ffffff !important;
+  color: #1e2330 !important;
+}
+/* The displayed selected value text */
+[data-testid="stSelectbox"] [data-baseweb="select"] > div,
+[data-testid="stSelectbox"] [class*="ValueContainer"] div,
+[data-testid="stSelectbox"] [class*="singleValue"] {
+  background-color: #ffffff !important;
+  color: #1e2330 !important;
+}
+/* Dropdown arrow icon */
+[data-testid="stSelectbox"] svg { fill: #6b7280 !important; }
+
+/* Dropdown listbox popup */
+[data-baseweb="popover"] [role="listbox"],
+[data-baseweb="menu"] {
+  background-color: #ffffff !important;
+  border: 1px solid #d1d5db !important;
+  border-radius: 6px !important;
+}
+/* Individual options */
+[role="option"] {
+  background-color: #ffffff !important;
+  color: #1e2330 !important;
+}
+[role="option"]:hover,
+[role="option"][aria-selected="true"] {
+  background-color: #f4f6fa !important;
+  color: #1a3c6e !important;
+}
+
+/* Multiselect tags */
+[data-testid="stMultiSelect"] [data-baseweb="tag"] {
+  background-color: #1a3c6e !important;
+  color: #ffffff !important;
+}
+[data-testid="stMultiSelect"] > div > div {
+  background-color: #ffffff !important;
+  border-color: #d1d5db !important;
+}
 
 /* ── Caption ── */
 [data-testid="stCaptionContainer"] { color: #6b7280 !important; }
