@@ -157,6 +157,16 @@
     }
     .cluster-reset-btn:hover { border-color: var(--primary); color: var(--primary); }
 
+    /* ── Card entrance animation ── */
+    .anim-ready {
+      opacity: 0; transform: translateY(20px);
+      transition: opacity 0.45s ease, transform 0.45s ease;
+    }
+    .anim-visible { opacity: 1 !important; transform: translateY(0) !important; }
+
+    /* ── Map click cursor ── */
+    #chart-cluster-map, #chart-overview-map { cursor: pointer; }
+
     /* ── Progress bar ── */
     #ts-progress-wrap {
       margin-bottom: 14px; overflow: hidden;
@@ -630,6 +640,12 @@ const PALETTE = [
   '#f97316','#8b5cf6','#14b8a6','#ef4444',
 ];
 
+const SPIKE_X = {
+  showspikes: true, spikemode: 'across', spikesnap: 'cursor',
+  spikecolor: '#94a3b8', spikedash: 'solid', spikewidth: 1,
+};
+const PLOTLY_CFG = { displayModeBar: false, responsive: true };
+
 // ─── Tab switching ────────────────────────────────────────────────────────────
 function showTab(id, btn) {
   document.querySelectorAll('.tab-panel').forEach(p => p.classList.remove('active'));
@@ -680,17 +696,18 @@ async function loadNationalInflation() {
       yaxis: 'y2',
     },
   ], {
-    xaxis: { title: 'Date', type: 'date', tickformat: '%b %Y' },
+    xaxis: { title: 'Date', type: 'date', tickformat: '%b %Y', ...SPIKE_X },
     yaxis: { title: 'YoY Inflation (%)' },
     yaxis2: {
       title: 'MoM Inflation (%)', overlaying: 'y', side: 'right',
       showgrid: false, zeroline: false,
     },
+    hovermode: 'x unified',
     legend: { orientation: 'h', y: -0.22 },
     margin: { t: 20, r: 64 },
     shapes: [{ type:'line', x0:dates[0], x1:dates[dates.length-1],
                y0:0, y1:0, line:{ color:'#9ca3af', width:1, dash:'dot' } }],
-  }, { responsive: true });
+  }, PLOTLY_CFG);
 }
 
 // ─── Overview: division trends ────────────────────────────────────────────────
@@ -729,13 +746,14 @@ async function loadDivisionTrends() {
   });
 
   Plotly.newPlot('chart-division-trends', traces, {
-    xaxis: { title: 'Date', type: 'date', tickformat: '%b %Y' },
+    xaxis: { title: 'Date', type: 'date', tickformat: '%b %Y', ...SPIKE_X },
     yaxis: { title: 'YoY Inflation (%)' },
+    hovermode: 'x unified',
     shapes: [{ type:'line', x0:traces[0]?.x[0], x1:traces[0]?.x?.at(-1),
                y0:0, y1:0, line:{ color:'#9ca3af', width:1, dash:'dot' } }],
     legend: { orientation: 'v', x: 1.01, y: 1, font: { size: 11 } },
     margin: { t: 20, r: 220 },
-  }, { responsive: true });
+  }, PLOTLY_CFG);
 }
 
 // ─── Overview: state CPI explorer ─────────────────────────────────────────────
@@ -762,11 +780,12 @@ async function loadStateCPI() {
     line: { color: '#1a3c6e', width: 2 },
     fill: 'tozeroy', fillcolor: 'rgba(26,60,110,0.07)',
   }], {
-    xaxis: { title: 'Date', type: 'date', tickformat: '%b %Y' },
+    xaxis: { title: 'Date', type: 'date', tickformat: '%b %Y', ...SPIKE_X },
     yaxis: { title: 'CPI Index (Base 2010 = 100)' },
+    hovermode: 'x unified',
     title: { text: 'CPI Index — ' + state, font: { size: 13 } },
     margin: { t: 40, r: 20 },
-  }, { responsive: true });
+  }, PLOTLY_CFG);
 }
 
 // ─── Time series: pre-computed forecast (fast initial load) ───────────────────
@@ -851,8 +870,9 @@ function renderForecastChart(d) {
     },
   ], {
     title: { text: 'National CPI Inflation Forecast — ' + orderStr, font: { size: 13 } },
-    xaxis: { title: 'Date', type: 'date', tickformat: '%b %Y' },
+    xaxis: { title: 'Date', type: 'date', tickformat: '%b %Y', ...SPIKE_X },
     yaxis: { title: 'CPI Inflation YoY (%)' },
+    hovermode: 'x unified',
     shapes: (test.dates && test.dates[0]) ? [{
       type: 'line', x0: test.dates[0], x1: test.dates[0],
       yref: 'paper', y0: 0, y1: 1,
@@ -864,7 +884,7 @@ function renderForecastChart(d) {
     }] : [],
     legend: { orientation: 'h', y: -0.22 },
     margin: { t: 48, r: 20 },
-  }, { responsive: true });
+  }, PLOTLY_CFG);
 }
 
 function updateForecastMetrics(d) {
@@ -1258,14 +1278,15 @@ function showStateDetail(stateName) {
   const clsVals    = FEATURE_META.map(f => clsAvg(f.key) / natAvg(f.key) * 100);
   const natVals    = FEATURE_META.map(() => 100);
 
+  const _barZeros = featureLabels.map(() => 0);
   Plotly.react('chart-state-detail-bar', [
     {
-      name: stateName, type: 'bar', x: featureLabels, y: stateVals,
+      name: stateName, type: 'bar', x: featureLabels, y: _barZeros,
       marker: { color: '#1a3c6e', opacity: 0.9 },
     },
     {
       name: 'Cluster avg (' + row.cluster_label + ')', type: 'bar',
-      x: featureLabels, y: clsVals,
+      x: featureLabels, y: _barZeros,
       marker: { color: '#e8523a', opacity: 0.75 },
     },
     {
@@ -1280,6 +1301,10 @@ function showStateDetail(stateName) {
     legend: { orientation: 'h', y: -0.28 },
     margin: { t: 40, r: 20, b: 80 },
   }, { responsive: true });
+
+  requestAnimationFrame(() => Plotly.animate('chart-state-detail-bar', {
+    data: [{ y: stateVals }, { y: clsVals }], traces: [0, 1],
+  }, { transition: { duration: 600, easing: 'cubic-in-out' }, frame: { duration: 600 } }));
 
   const panel = document.getElementById('state-detail-panel');
   panel.classList.add('visible');
@@ -1346,6 +1371,16 @@ async function loadCPIMap() {
     margin: { t: 0, b: 0, l: 0, r: 60 },
     paper_bgcolor: 'rgba(0,0,0,0)',
   }, { displayModeBar: false, responsive: true });
+
+  // Click a state → jump to Clustering tab and show its detail panel
+  const _revMap = Object.fromEntries(Object.entries(MY_NAME_MAP).map(([k, v]) => [v, k]));
+  document.getElementById('chart-overview-map').on('plotly_click', evt => {
+    if (!evt.points.length) return;
+    const stateName = _revMap[evt.points[0].location] || evt.points[0].location;
+    const btn = document.querySelector("nav button[onclick*=\"'clustering'\"]");
+    if (btn) showTab('clustering', btn);
+    setTimeout(() => showStateDetail(stateName), 120);
+  });
 }
 
 async function loadClusterMap() {
@@ -1395,6 +1430,13 @@ async function loadClusterMap() {
     margin: { t: 0, b: 0, l: 0, r: 140 },
     paper_bgcolor: 'rgba(0,0,0,0)',
   }, { displayModeBar: false, responsive: true });
+
+  // Click a state → show its detail panel (same tab)
+  const _revMap2 = Object.fromEntries(Object.entries(MY_NAME_MAP).map(([k, v]) => [v, k]));
+  document.getElementById('chart-cluster-map').on('plotly_click', evt => {
+    if (!evt.points.length) return;
+    showStateDetail(_revMap2[evt.points[0].location] || evt.points[0].location);
+  });
 }
 
 async function loadClusterMetrics() {
@@ -1438,11 +1480,12 @@ async function loadFuelPrices() {
       line: { color: '#9ca3af', width: 1.5, dash: 'dot' },
     },
   ], {
-    xaxis: { title: 'Date', type: 'date' },
+    xaxis: { title: 'Date', type: 'date', tickformat: '%b %Y', ...SPIKE_X },
     yaxis: { title: 'Price (RM / litre)' },
+    hovermode: 'x unified',
     legend: { orientation: 'h', y: -0.22 },
     margin: { t: 20, r: 20 },
-  }, { responsive: true });
+  }, PLOTLY_CFG);
 }
 
 async function loadFuelCorrelation() {
@@ -1461,15 +1504,16 @@ async function loadFuelCorrelation() {
   const contemp   = fuelKeys.map(k => corrs[k].contemporaneous ?? 0);
   const lag1      = fuelKeys.map(k => corrs[k].lag1 ?? 0);
 
+  const zeros = labels.map(() => 0);
   Plotly.newPlot('chart-fuel-correlation', [
     {
       name: 'Contemporaneous (r)', type: 'bar',
-      x: labels, y: contemp,
+      x: labels, y: zeros,
       marker: { color: contemp.map(v => v >= 0 ? '#1a3c6e' : '#e8523a'), opacity: 0.85 },
     },
     {
       name: 'Lag-1 month (r)', type: 'bar',
-      x: labels, y: lag1,
+      x: labels, y: zeros,
       marker: { color: lag1.map(v => v >= 0 ? '#a855f7' : '#f59e0b'), opacity: 0.85 },
     },
   ], {
@@ -1483,7 +1527,10 @@ async function loadFuelCorrelation() {
     }],
     legend: { orientation: 'h', y: -0.22 },
     margin: { t: 48, r: 20 },
-  }, { responsive: true });
+  }, PLOTLY_CFG);
+  requestAnimationFrame(() => Plotly.animate('chart-fuel-correlation', {
+    data: [{ y: contemp }, { y: lag1 }], traces: [0, 1],
+  }, { transition: { duration: 700, easing: 'cubic-in-out' }, frame: { duration: 700 } }));
 }
 
 async function loadFuelExog() {
@@ -1655,6 +1702,19 @@ document.addEventListener('fullscreenchange', () => {
   try { await loadFuelPrices(); }          catch (_) {}
   try { await loadFuelCorrelation(); }     catch (_) {}
   try { await loadFuelExog(); }            catch (_) {}
+})();
+// ─── Card entrance animations (IntersectionObserver) ─────────────────────────
+(function () {
+  const cards = document.querySelectorAll('.card');
+  cards.forEach(c => c.classList.add('anim-ready'));
+  const obs = new IntersectionObserver(entries => {
+    entries.forEach(e => {
+      if (!e.isIntersecting) return;
+      e.target.classList.add('anim-visible');
+      obs.unobserve(e.target);
+    });
+  }, { threshold: 0.08, rootMargin: '0px 0px -20px 0px' });
+  cards.forEach(c => obs.observe(c));
 })();
 </script>
 </body>
