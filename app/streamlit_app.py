@@ -1097,8 +1097,13 @@ with tab3:
                                  key="cl_y")
         with col_m:
             st.markdown("<div style='height:28px'></div>", unsafe_allow_html=True)
-            method = st.radio("Method", ["K-Means", "Hierarchical"],
-                              horizontal=False, key="cl_method")
+            method_raw = st.radio(
+                "Method",
+                ["🔵  K-Means", "🟠  Hierarchical"],
+                horizontal=False,
+                key="cl_method",
+            )
+            method = "K-Means" if "K-Means" in method_raw else "Hierarchical"
 
         cluster_df = kmeans_df if method == "K-Means" else hier_df
         fig_scatter = _make_cluster_scatter(
