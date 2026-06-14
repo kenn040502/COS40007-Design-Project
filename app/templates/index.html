@@ -404,7 +404,7 @@
 
     <div id="ts-progress-wrap" class="hidden">
       <div id="ts-progress-track"><div id="ts-progress-fill"></div></div>
-      <div id="ts-progress-label">Initialising…</div>
+      <div id="ts-progress-label">Initialising… <span id="ts-elapsed" style="color:var(--muted);font-size:0.82em;margin-left:6px;"></span></div>
     </div>
 
     <div id="ts-metrics" class="metric-row"></div>
@@ -780,15 +780,32 @@ async function loadPrecomputedForecast() {
 
 // ─── Time series: live ARIMA via SSE ─────────────────────────────────────────
 let _liveController = null;
+let _elapsedTimer = null;
+let _forecastStart = null;
+
+function _startElapsedTimer() {
+  _forecastStart = Date.now();
+  document.getElementById('ts-elapsed').textContent = '0s';
+  _elapsedTimer = setInterval(() => {
+    const s = Math.floor((Date.now() - _forecastStart) / 1000);
+    document.getElementById('ts-elapsed').textContent = s + 's';
+  }, 1000);
+}
+
+function _stopElapsedTimer() {
+  if (_elapsedTimer) { clearInterval(_elapsedTimer); _elapsedTimer = null; }
+  document.getElementById('ts-elapsed').textContent = '';
+}
 
 function setProgress(pct, label) {
   const wrap = document.getElementById('ts-progress-wrap');
   wrap.classList.remove('hidden');
   document.getElementById('ts-progress-fill').style.width = pct + '%';
-  document.getElementById('ts-progress-label').textContent = label;
+  document.getElementById('ts-progress-label').childNodes[0].textContent = label + ' ';
 }
 
 function hideProgress() {
+  _stopElapsedTimer();
   document.getElementById('ts-progress-wrap').classList.add('hidden');
   document.getElementById('ts-progress-fill').style.width = '0%';
 }
@@ -911,6 +928,7 @@ async function loadForecastLive() {
   _liveController = new AbortController();
   btn.disabled = true;
   setProgress(5, 'Initialising…');
+  _startElapsedTimer();
 
   try {
     const res = await fetch('/api/ts/live?horizon=' + horizon, {
@@ -936,16 +954,19 @@ async function loadForecastLive() {
         if (evt.type === 'progress') {
           setProgress(evt.pct, evt.step);
         } else if (evt.type === 'result') {
+          _stopElapsedTimer();
           setProgress(100, 'Done');
           renderForecastChart(evt.data);
           updateForecastMetrics(evt.data);
           setTimeout(hideProgress, 900);
         } else if (evt.type === 'error') {
+          _stopElapsedTimer();
           setProgress(0, '⚠ ' + evt.message);
         }
       }
     }
   } catch (e) {
+    _stopElapsedTimer();
     if (e.name !== 'AbortError') setProgress(0, '⚠ ' + e.message);
   } finally {
     btn.disabled = false;
