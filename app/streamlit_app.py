@@ -1073,20 +1073,19 @@ with tab3:
     elbow    = clust.get("elbow_metrics", {})
     dendro   = clust.get("dendrogram", {})
 
-    # ── State Cluster Explorer (interactive scatter + axis selectors) ──────────
+    # ── State Cluster Explorer (interactive scatter — both methods side-by-side) ─
     with st.container(border=True):
         st.markdown("""
         <p class="card-title">State Cluster Explorer</p>
         <p class="card-desc">
           16 Malaysian states clustered by 5 features: mean CPI index, CPI volatility,
           CPI growth rate, latest mean household income, and latest median household income.
-          Optimal k selected via Silhouette score. Each point is labelled with the state name.
+          K-Means and Hierarchical (Ward) results shown side-by-side for direct comparison.
         </p>
         """, unsafe_allow_html=True)
 
         feat_names = list(_FEATURE_OPTS.keys())
-        feat_keys  = list(_FEATURE_OPTS.values())
-        col_x, col_y, col_m = st.columns([2, 2, 1])
+        col_x, col_y = st.columns(2)
         with col_x:
             x_sel = st.selectbox("X Axis", feat_names,
                                  index=feat_names.index("Mean Household Income"),
@@ -1095,24 +1094,23 @@ with tab3:
             y_sel = st.selectbox("Y Axis", feat_names,
                                  index=feat_names.index("CPI Growth Rate"),
                                  key="cl_y")
-        with col_m:
-            st.markdown("<div style='height:28px'></div>", unsafe_allow_html=True)
-            method_raw = st.radio(
-                "Method",
-                ["🔵  K-Means", "🟠  Hierarchical"],
-                horizontal=False,
-                key="cl_method",
-            )
-            method = "K-Means" if "K-Means" in method_raw else "Hierarchical"
 
-        cluster_df = kmeans_df if method == "K-Means" else hier_df
-        fig_scatter = _make_cluster_scatter(
-            cluster_df, _FEATURE_OPTS[x_sel], _FEATURE_OPTS[y_sel]
-        )
-        st.plotly_chart(fig_scatter, use_container_width=True)
+        x_col = _FEATURE_OPTS[x_sel]
+        y_col = _FEATURE_OPTS[y_sel]
+        col_km, col_hr = st.columns(2)
+        with col_km:
+            st.markdown('<p class="card-title" style="font-size:13px;margin-bottom:4px">🔵 K-Means</p>',
+                        unsafe_allow_html=True)
+            st.plotly_chart(_make_cluster_scatter(kmeans_df, x_col, y_col),
+                            use_container_width=True)
+        with col_hr:
+            st.markdown('<p class="card-title" style="font-size:13px;margin-bottom:4px">🟠 Hierarchical (Ward)</p>',
+                        unsafe_allow_html=True)
+            st.plotly_chart(_make_cluster_scatter(hier_df, x_col, y_col),
+                            use_container_width=True)
         st.caption("Each dot is a Malaysian state, coloured by cluster assignment.")
 
-    # ── Malaysia State Cluster Map (choropleth) ───────────────────────────────
+    # ── Malaysia State Cluster Map (choropleth — K-Means) ────────────────────
     with st.container(border=True):
         st.markdown("""
         <p class="card-title">Malaysia State Cluster Map</p>
@@ -1125,7 +1123,7 @@ with tab3:
 
         geojson = load_malaysia_geojson()
         if geojson is not None:
-            fig_cmap = _make_choropleth_cluster(geojson, cluster_df)
+            fig_cmap = _make_choropleth_cluster(geojson, kmeans_df)
             st.plotly_chart(fig_cmap, use_container_width=True)
         else:
             st.info("Map unavailable — GeoJSON could not be loaded.")
@@ -1155,9 +1153,9 @@ with tab3:
                 st.plotly_chart(_make_elbow_chart(elbow, best_k), use_container_width=True)
     with col_b:
         with st.container(border=True):
-            pca_title = f"{method} — PCA Projection"
-            st.markdown(f'<p class="card-title">{pca_title}</p>', unsafe_allow_html=True)
-            fig_pca = _make_pca_scatter(cluster_df, pca_title, pca_var)
+            st.markdown('<p class="card-title">K-Means — PCA Projection</p>',
+                        unsafe_allow_html=True)
+            fig_pca = _make_pca_scatter(kmeans_df, "K-Means — PCA Projection", pca_var)
             if fig_pca:
                 st.plotly_chart(fig_pca, use_container_width=True)
 
@@ -1167,15 +1165,14 @@ with tab3:
         with st.container(border=True):
             st.markdown('<p class="card-title">Hierarchical — PCA Projection</p>',
                         unsafe_allow_html=True)
-            fig_hpca = _make_pca_scatter(hier_df, "Hierarchical Clusters — PCA Projection",
-                                         pca_var)
+            fig_hpca = _make_pca_scatter(hier_df, "Hierarchical — PCA Projection", pca_var)
             if fig_hpca:
                 st.plotly_chart(fig_hpca, use_container_width=True)
     with col_d:
         with st.container(border=True):
             st.markdown('<p class="card-title">Cluster Socioeconomic Profiles</p>',
                         unsafe_allow_html=True)
-            st.plotly_chart(_make_profiles_heatmap(cluster_df), use_container_width=True)
+            st.plotly_chart(_make_profiles_heatmap(kmeans_df), use_container_width=True)
 
     # ── Hierarchical Clustering — Dendrogram ──────────────────────────────────
     with st.container(border=True):
