@@ -1027,11 +1027,17 @@ with tab2:
         ))
         fig_fc.add_hline(y=0, line_dash="dot", line_color="#9ca3af", line_width=0.8)
         if len(test_dates):
-            fig_fc.add_vline(
-                x=str(test_dates[0].date()),
-                line_dash="dot", line_color="#9ca3af", line_width=1,
-                annotation_text="test split", annotation_position="top left",
-                annotation_font_size=10,
+            _vline_x = str(test_dates[0].date())
+            fig_fc.add_shape(
+                type="line", x0=_vline_x, x1=_vline_x, y0=0, y1=1,
+                xref="x", yref="paper",
+                line=dict(dash="dot", color="#9ca3af", width=1),
+            )
+            fig_fc.add_annotation(
+                x=_vline_x, y=1, xref="x", yref="paper",
+                text="test split", showarrow=False,
+                xanchor="right", yanchor="top",
+                font=dict(size=10, color="#9ca3af"),
             )
         fig_fc.update_layout(
             title=dict(
