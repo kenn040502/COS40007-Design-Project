@@ -1,0 +1,34 @@
+{
+  "available": true,
+  "order": [
+    0,
+    1,
+    1
+  ],
+  "exog_cols": [
+    "avg_fuel"
+  ],
+  "n_overlap_months": 109,
+  "overlap_start": "2017-03-01",
+  "overlap_end": "2026-04-01",
+  "test_months": 24,
+  "arimax_metrics": {
+    "MAE": 1.591,
+    "RMSE": 2.3153,
+    "sMAPE": 58.98,
+    "MASE": 3.545
+  },
+  "arima_metrics": {
+    "MAE": 0.2867,
+    "RMSE": 0.3502,
+    "sMAPE": 17.81,
+    "MASE": 0.6388
+  },
+  "rmse_improvement_pct": -561.14,
+  "exog_coefficients": {
+    "avg_fuel": {
+      "coef": 0.957,
+      "pvalue": 0.0031
+    }
+  }
+}
