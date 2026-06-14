@@ -1504,16 +1504,15 @@ async function loadFuelCorrelation() {
   const contemp   = fuelKeys.map(k => corrs[k].contemporaneous ?? 0);
   const lag1      = fuelKeys.map(k => corrs[k].lag1 ?? 0);
 
-  const zeros = labels.map(() => 0);
   Plotly.newPlot('chart-fuel-correlation', [
     {
       name: 'Contemporaneous (r)', type: 'bar',
-      x: labels, y: zeros,
+      x: labels, y: labels.map(() => 0),
       marker: { color: contemp.map(v => v >= 0 ? '#1a3c6e' : '#e8523a'), opacity: 0.85 },
     },
     {
       name: 'Lag-1 month (r)', type: 'bar',
-      x: labels, y: zeros,
+      x: labels, y: labels.map(() => 0),
       marker: { color: lag1.map(v => v >= 0 ? '#a855f7' : '#f59e0b'), opacity: 0.85 },
     },
   ], {
@@ -1521,6 +1520,7 @@ async function loadFuelCorrelation() {
     xaxis: { title: 'Fuel Type' },
     yaxis: { title: 'Pearson r', range: [-1, 1] },
     barmode: 'group',
+    transition: { duration: 700, easing: 'cubic-in-out' },
     shapes: [{
       type: 'line', x0: -0.5, x1: fuelKeys.length - 0.5,
       y0: 0, y1: 0, line: { color: '#9ca3af', width: 1 },
@@ -1528,9 +1528,7 @@ async function loadFuelCorrelation() {
     legend: { orientation: 'h', y: -0.22 },
     margin: { t: 48, r: 20 },
   }, PLOTLY_CFG);
-  requestAnimationFrame(() => Plotly.animate('chart-fuel-correlation', {
-    data: [{ y: contemp }, { y: lag1 }], traces: [0, 1],
-  }, { transition: { duration: 700, easing: 'cubic-in-out' }, frame: { duration: 700 } }));
+  setTimeout(() => Plotly.restyle('chart-fuel-correlation', { y: [contemp, lag1] }, [0, 1]), 100);
 }
 
 async function loadFuelExog() {

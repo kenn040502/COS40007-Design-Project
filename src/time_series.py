@@ -55,11 +55,15 @@ def select_order(series: pd.Series, p_max: int = 4, q_max: int = 4) -> tuple:
 
     best_bic = np.inf
     best_order = (1, d, 1)
+    total = (p_max + 1) * (q_max + 1) - 1
+    done = 0
 
     for p in range(0, p_max + 1):
         for q in range(0, q_max + 1):
             if p == 0 and q == 0:
                 continue
+            done += 1
+            print(f"    BIC grid [{done}/{total}]: ARIMA({p},{d},{q})", end="\r", flush=True)
             try:
                 m = ARIMA(series.values, order=(p, d, q)).fit()
                 if m.bic < best_bic:
@@ -68,6 +72,7 @@ def select_order(series: pd.Series, p_max: int = 4, q_max: int = 4) -> tuple:
             except Exception:
                 pass
 
+    print()  # newline after \r progress
     return best_order
 
 
@@ -429,7 +434,25 @@ def run_all(inflation_df: pd.DataFrame = None, fuelprice_df: pd.DataFrame = None
     print(f"  ADF test: p={stationarity['p_value']} "
           f"({'stationary' if stationarity['is_stationary'] else 'non-stationary'})")
 
-    order = select_order(train)
+    # Reuse cached order to skip the expensive BIC grid search on re-runs.
+    # Delete outputs/models/arima_results.json to force a fresh grid search.
+    order = None
+    cached_path = os.path.join(MODELS_DIR, "arima_results.json")
+    if os.path.exists(cached_path):
+        try:
+            with open(cached_path) as _f:
+                _cached = json.load(_f)
+            _o = tuple(_cached.get("arima_order", []))
+            if len(_o) == 3:
+                order = _o
+                print(f"  Reusing cached order ARIMA{order} "
+                      f"(delete outputs/models/arima_results.json to re-run grid search)")
+        except Exception:
+            order = None
+
+    if order is None:
+        print(f"  BIC grid search (p,q ≤ 4) — fitting up to 24 models…")
+        order = select_order(train)
     print(f"  BIC-selected order: ARIMA{order}")
 
     fitted = fit_arima(train, order)
