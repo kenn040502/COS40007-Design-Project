@@ -1,0 +1,610 @@
+================================================================================
+COS40007 AI FOR ENGINEERING — LECTURER INTERVIEW PREPARATION
+Project: Smart Government | Team: E's Island
+================================================================================
+This document is split by person. Each section covers:
+  - Role summary
+  - Likely Q&A with detailed answers
+  - Specific code lines to point to during the interview
+
+================================================================================
+SECTION 1: KENNETH HUI HONG CHUA (102782494)
+Role: Inflation Forecasting Lead (ARIMA model)
+Primary files: src/preprocessing.py, src/time_series.py
+================================================================================
+
+--- WHAT KENNETH DID ---
+1. Collected and cleaned Malaysia's national inflation data from OpenDOSM:
+   ~7,770 monthly records across 14 spending categories, 1980-2026.
+2. Built ARIMA model with automated BIC grid search to find the best order.
+3. Ran the Augmented Dickey-Fuller (ADF) stationarity test.
+4. Trained the final model and measured accuracy with sMAPE and MASE.
+5. Compared model against a naive baseline and tested fuel prices as predictors.
+
+--- Q&A ---
+
+Q1: What is ARIMA and why did you choose it?
+A: ARIMA stands for AutoRegressive Integrated Moving Average. It is a classical
+   time series model that captures patterns in past values (AR part), handles
+   non-stationarity via differencing (I part), and corrects for residual errors
+   (MA part). We chose it because Malaysia's CPI inflation is a univariate monthly
+   time series with a long history going back to 1980, which is exactly what ARIMA
+   is designed for. We did not have enough labelled future data to train a neural
+   network, so a statistical model was the right choice here.
+
+Q2: What is the ADF test and why did you do it?
+A: ADF stands for Augmented Dickey-Fuller. It tests whether a time series is
+   stationary — meaning its mean and variance do not drift over time. ARIMA
+   requires stationary data to make reliable forecasts. If the test p-value is
+   below 0.05 we treat the series as stationary (d=0); otherwise we apply one
+   round of differencing (d=1) to remove the trend.
+   Code: src/time_series.py lines 38-44 (check_stationarity function).
+   The result sets the 'd' parameter in ARIMA(p,d,q).
+   Code: src/time_series.py lines 53-54 inside select_order.
+
+Q3: How did you pick the best ARIMA order (p, d, q)?
+A: We ran a grid search over all combinations where p is 0 to 4 and q is 0 to 4.
+   For each combination we fitted the model and recorded the BIC (Bayesian
+   Information Criterion). BIC penalises model complexity more heavily than AIC,
+   so it pushes us towards simpler, more generalisable models. We kept the (p,d,q)
+   combination with the lowest BIC.
+   Code: src/time_series.py lines 47-75 (select_order function).
+   The outer loop is p (line 61), the inner loop is q (line 62), ARIMA is fitted
+   at line 68, and the best BIC is tracked at lines 69-71.
+
+Q4: Why did you skip p=0, q=0 in the grid search?
+A: An ARIMA(0,d,0) model with no autoregressive or moving average terms would just
+   produce the mean of the differenced series — it is not a meaningful time series
+   model. We exclude it at line 63-64 in select_order so we do not waste a model
+   slot on a degenerate case.
+
+Q5: What metrics did you use to evaluate the forecast and why?
+A: We used four metrics:
+   - MAE (Mean Absolute Error): simple average of absolute errors.
+   - RMSE (Root Mean Square Error): penalises large errors more heavily than MAE.
+   - sMAPE (Symmetric MAPE): percentage error that is safe when the actual value
+     is near zero. CPI inflation regularly crosses zero (deflation), so standard
+     MAPE would blow up or be undefined. sMAPE is bounded between 0 and 200%.
+     Code: src/time_series.py lines 92-104 (_smape function).
+   - MASE (Mean Absolute Scaled Error): the model's MAE divided by the MAE of
+     a naive random-walk forecast on the training data. MASE < 1 means our model
+     beats just repeating the last observed value.
+     Code: src/time_series.py lines 107-119 (_mase function).
+   We deliberately excluded plain MAPE because inflation crosses zero.
+   Code: evaluate_forecast at lines 122-137.
+
+Q6: What is the naive baseline and why is it important?
+A: The naive forecast simply carries the last observed value forward for all future
+   steps (random walk). It is the simplest possible model and a fair lower bar:
+   if our ARIMA cannot beat this, there is no point using it.
+   Code: src/time_series.py lines 140-142 (naive_forecast function).
+   MASE < 1 means ARIMA beats the naive baseline.
+
+Q7: How did you test whether fuel prices help predict inflation?
+A: We fitted a SARIMAX (ARIMAX) model using average fuel price as an exogenous
+   variable, then compared its RMSE against a plain ARIMA on the same held-out
+   24-month window. The percentage RMSE improvement tells us whether fuel adds
+   real predictive signal beyond what ARIMA already captures on its own.
+   We also extracted the fuel coefficient and its p-value to check statistical
+   significance.
+   Code: src/time_series.py lines 173-265 (compute_fuel_exog_model function).
+   The honest caveat: the headline 2-year forecast stays univariate because we
+   cannot know future fuel prices — fuel is useful for explanation, not
+   operational forecasting.
+   Code: lines 183-186 (the comment explaining this trade-off).
+
+Q8: How did you clean the national inflation data?
+A: The raw CSV from OpenDOSM (cpi_2d_inflation.csv) contained monthly records for
+   14 spending divisions plus an 'overall' row going back to 1980. We:
+   - Parsed the date column as datetime (line 42, preprocessing.py).
+   - Converted inflation_yoy and inflation_mom to numeric, coercing errors to NaN
+     (lines 45-46, preprocessing.py).
+   - Mapped division codes like '01' to readable labels like 'Food & Non-Alcoholic
+     Beverages' (line 47, preprocessing.py using DIVISION_LABELS dict lines 21-36).
+   - Extracted only the 'overall' row for ARIMA, dropping rows where yoy is NaN
+     because there is no prior-year reference before 1981 (build_overall_inflation,
+     lines 93-100, preprocessing.py).
+
+Q9: What does the 7,770 record figure represent?
+A: The raw CPI inflation file has 14 division categories plus one overall row,
+   each with monthly records from 1980 to 2026. That is roughly 555 months times
+   14 divisions = ~7,770 total rows. For ARIMA we only used the 'overall' column,
+   which is about 545 monthly observations after dropping the early NaN rows.
+
+Q10: What would you do differently if you had more time?
+A: I would explore SARIMA (seasonal ARIMA) to capture yearly patterns in
+   inflation — for example, food prices typically spike before major holidays.
+   I would also try a rolling-window evaluation instead of a single train/test
+   split to get a more robust estimate of out-of-sample performance.
+
+--- KEY CODE LINES (Kenneth) ---
+src/preprocessing.py:
+  Lines 21-36  : DIVISION_LABELS dictionary mapping codes to readable names
+  Lines 39-49  : load_cpi_inflation — loads and cleans national CPI data
+  Lines 93-100 : build_overall_inflation — extracts the 'overall' series for ARIMA
+
+src/time_series.py:
+  Lines 38-44  : check_stationarity — ADF test, returns p-value and boolean
+  Lines 47-75  : select_order — BIC grid search over p in [0,4], q in [0,4]
+  Lines 56-57  : best_bic initialised to infinity, fallback order (1,d,1)
+  Lines 61-73  : nested for-loop fitting ARIMA for each (p,q) pair
+  Lines 92-104 : _smape — Symmetric MAPE, handles zero inflation values
+  Lines 107-119: _mase — Mean Absolute Scaled Error vs naive baseline
+  Lines 122-137: evaluate_forecast — assembles MAE, RMSE, sMAPE, MASE
+  Lines 140-142: naive_forecast — random-walk baseline
+  Lines 173-265: compute_fuel_exog_model — ARIMAX vs ARIMA comparison
+
+
+================================================================================
+SECTION 2: KELVIN WEN KIONG FONG (102782287)
+Role: State Grouping Lead (Clustering)
+Primary files: src/preprocessing.py (state features), src/clustering.py
+================================================================================
+
+--- WHAT KELVIN DID ---
+1. Collected and cleaned state-level CPI and household income data for all 16 states.
+2. Engineered 5 features per state (price level, price growth, price stability, income).
+3. Standardised features so all are on the same scale before clustering.
+4. Built K-Means and Hierarchical (Ward) clustering with automated k selection.
+5. Reduced dimensions with PCA for visualisation and gave clusters readable names.
+6. Validated clusters with 3 quality metrics: Silhouette, Davies-Bouldin, Calinski-Harabasz.
+7. Produced all clustering charts.
+
+--- Q&A ---
+
+Q1: What features did you engineer for each state and why those five?
+A: We created five features per state:
+   1. mean_cpi_index: average CPI index over all available months — captures the
+      overall price level of the state.
+   2. cpi_growth_rate: percentage change from the earliest to latest CPI index —
+      captures how much prices have grown over time.
+   3. cpi_volatility: standard deviation of monthly CPI — measures price stability;
+      a high value means prices fluctuate a lot.
+   4. income_mean_latest: most recent survey mean household income.
+   5. income_median_latest: most recent survey median household income.
+   We included both income measures because mean income is sensitive to high earners
+   while median is more representative of the typical household.
+   Code: src/preprocessing.py lines 103-140 (build_state_features function).
+   Code: src/clustering.py lines 35-41 (FEATURE_COLS list).
+
+Q2: Why did you standardise the features before clustering?
+A: CPI index values are around 100-150, income values are in thousands of ringgit,
+   and growth rates are percentages. Without standardisation, income would dominate
+   the distance calculations simply because its numbers are larger, not because it
+   is more important. StandardScaler transforms each feature to zero mean and unit
+   variance so all five contribute equally.
+   Code: src/clustering.py lines 45-49 (prepare_features function).
+
+Q3: How did you choose the number of clusters (k)?
+A: We ran a grid search over k from 2 to 8 (MAX_K = 8, which is roughly half the
+   number of states — line 42 in clustering.py). For each k we computed four metrics:
+   - Inertia (WCSS): total within-cluster sum of squares — lower is better but
+     always decreases with more clusters, so we use the "elbow" shape.
+   - Silhouette score: measures how well-separated clusters are, ranging from -1
+     to +1; higher is better.
+   - Davies-Bouldin index: average ratio of within-cluster scatter to between-cluster
+     distance; lower is better.
+   - Calinski-Harabasz score: ratio of between-cluster to within-cluster dispersion;
+     higher is better.
+   We selected k = argmax(silhouette) as our primary criterion.
+   Code: src/clustering.py lines 52-72 (elbow_and_silhouette function).
+   The final selection is at line 64: best_k = list(k_range)[np.argmax(silhouettes)].
+
+Q4: Why did you use both K-Means and Hierarchical clustering?
+A: K-Means requires you to specify k in advance, uses centroids, and assumes roughly
+   spherical clusters. Hierarchical clustering (Ward linkage) builds a tree of
+   merges without needing k upfront, making no shape assumptions. Using both lets
+   us check whether the groupings are consistent across different algorithmic
+   assumptions. If both methods produce similar cluster assignments, we have more
+   confidence that the structure is real and not an artefact of the algorithm.
+
+Q5: What is Ward linkage and why did you use it?
+A: Ward linkage merges the two clusters whose union produces the smallest increase
+   in total within-cluster variance. It tends to produce compact, equally-sized
+   clusters and is generally the best-performing linkage method for socioeconomic
+   data. We chose it over single or complete linkage because it minimises
+   within-group heterogeneity.
+   Code: src/clustering.py line 82 — AgglomerativeClustering(n_clusters=k, linkage="ward").
+
+Q6: What is PCA and why did you use it?
+A: Principal Component Analysis reduces high-dimensional data to fewer dimensions
+   while retaining as much variance as possible. We have 5 features per state,
+   which cannot be plotted directly. PCA projects them onto 2 axes (PC1, PC2) that
+   capture the most variance, allowing us to draw a scatter plot where each state
+   is a point and clusters can be visually inspected.
+   Code: src/clustering.py lines 87-91 (pca_transform function).
+   The axis labels in the plot show what percentage of variance each component
+   explains: line 177 in clustering.py.
+
+Q7: How did you label the clusters with meaningful names?
+A: We ordered the clusters by their mean income in ascending order, then assigned
+   the labels "Low Income & Low CPI", "Mid-Low Income & Mid-Low CPI",
+   "Mid-High Income & High CPI", and "High Income & High CPI" from lowest to
+   highest. This works because income and CPI price level are strongly correlated
+   across Malaysian states — richer states tend to have higher price levels.
+   Code: src/clustering.py lines 94-113 (assign_semantic_labels function).
+   The ordering is at line 101: cluster_means["income_mean_latest"].argsort().
+
+Q8: How did you validate that the clusters are genuine?
+A: We used three validation scores after fitting:
+   1. Silhouette score: if > 0.5, clusters are well-defined. We computed this for
+      both K-Means and Hierarchical at lines 270 and 290 in clustering.py.
+   2. Davies-Bouldin index: lower means clusters are more compact and separated.
+   3. Calinski-Harabasz score: higher means denser, better-separated clusters.
+   Consistent scores across both clustering methods confirm that the structure is
+   not just an artefact of K-Means.
+
+Q9: How did you clean the state CPI and income data?
+A: For state CPI (cpi_2d_state.csv):
+   - Parsed dates (line 55, preprocessing.py), converted index to numeric (line 58),
+     dropped rows where index is NaN (line 60).
+   State income (hh_income_state.csv):
+   - Parsed dates (line 85), converted income_mean and income_median to numeric
+     (lines 87-88), dropped rows where income_mean is NaN (line 89).
+   Code: preprocessing.py lines 52-62 (load_cpi_state) and lines 82-90 (load_income_state).
+
+Q10: Why is the maximum k set to 8?
+A: We have 16 states. A general rule of thumb for clustering is that k should be
+   at most roughly half the number of data points, otherwise each cluster ends up
+   with very few members and the groupings lose interpretability. With k=8 we
+   ensure each cluster has at least 2 states on average.
+   Code: src/clustering.py line 42 — MAX_K = 8.
+
+--- KEY CODE LINES (Kelvin) ---
+src/preprocessing.py:
+  Lines 52-62  : load_cpi_state — loads and cleans monthly state CPI
+  Lines 82-90  : load_income_state — loads and cleans household income by state
+  Lines 103-140: build_state_features — engineers 5 features per state
+  Lines 114-116: groupby aggregation for mean_cpi_index and cpi_volatility
+  Lines 119-125: pct_growth inner function computing cpi_growth_rate
+  Lines 128-136: gets the most recent income survey per state
+
+src/clustering.py:
+  Lines 35-41  : FEATURE_COLS — the 5 features used
+  Line 42      : MAX_K = 8 (reason: half the sample size)
+  Lines 45-49  : prepare_features — StandardScaler normalisation
+  Lines 52-72  : elbow_and_silhouette — grid search k from 2 to 8
+  Line 64      : best_k = argmax(silhouette)
+  Lines 75-78  : fit_kmeans — KMeans with random_state=42, n_init=10
+  Lines 81-84  : fit_hierarchical — Ward linkage
+  Lines 87-91  : pca_transform — 2D reduction for visualisation
+  Lines 94-113 : assign_semantic_labels — income-ordered readable names
+  Lines 116-151: plot_elbow_silhouette — 3-panel optimal k chart
+  Lines 269-274: K-Means validation scores (silhouette, DB, CH)
+  Lines 289-294: Hierarchical validation scores
+
+
+================================================================================
+SECTION 3: NIGEL ZI JUN LING (102779140)
+Role: Cross-Analysis & Validation
+Primary files: src/preprocessing.py (fuel), src/time_series.py (fuel correlation),
+               src/evaluation.py
+================================================================================
+
+--- WHAT NIGEL DID ---
+1. Collected and cleaned weekly fuel-price data; resampled it to monthly averages.
+2. Measured Pearson correlation between fuel prices and inflation (same-month and lag-1).
+3. Built state-by-state CPI comparison bar charts.
+4. Built a category-by-year inflation heatmap.
+5. Created a chart linking state income to CPI growth, coloured by cluster.
+6. Cross-checked all key figures against Malaysia's official 2022 statistics.
+
+--- Q&A ---
+
+Q1: Why did you need to resample the fuel price data from weekly to monthly?
+A: Our CPI inflation data is recorded monthly. To measure the correlation between
+   fuel prices and inflation we need both series to share the same time frequency.
+   We grouped the weekly fuel readings by month (using resample("MS") for month-start)
+   and took the mean within each month. This preserves price variation across months
+   while aligning with the CPI schedule.
+   Code: src/preprocessing.py lines 65-79 (load_fuelprice function).
+   The resample step is at line 77: df.set_index("date").resample("MS").mean().
+
+Q2: What is Pearson correlation and what does it tell us here?
+A: Pearson r measures the linear relationship between two variables, ranging from
+   -1 (perfect negative) to +1 (perfect positive). In our context it tells us how
+   closely fuel price movements track inflation movements. A positive r means when
+   fuel goes up, inflation tends to go up too. We computed two variants:
+   - Contemporaneous: fuel at month t vs inflation at month t.
+   - Lag-1: fuel at month t vs inflation at month t+1 — tests if fuel LEADS inflation.
+   Code: src/time_series.py lines 145-170 (compute_fuel_correlation function).
+   Contemporaneous: line 160. Lag-1: line 161 (shifts the series by one).
+
+Q3: Why did you measure lag-1 correlation specifically?
+A: There is a plausible physical reason why fuel might lead inflation by a month:
+   higher fuel prices increase transport and production costs, but businesses take
+   time to pass those costs onto consumers. A one-month lag tests this mechanism.
+   If the lag-1 correlation is stronger than the contemporaneous one, it suggests
+   fuel price changes transmit into inflation with a delay.
+
+Q4: What is the fuel-CPI correlation chart and what does it show?
+A: It is a dual-panel chart in evaluation.py (plot_fuel_cpi_correlation, lines 49-95).
+   Left panel: scatter plot of average fuel price vs overall inflation YoY, with
+   an OLS regression line showing the overall trend and Pearson r on the label.
+   Right panel: grouped bar chart showing contemporaneous and lag-1 correlations
+   for each fuel type (RON95, RON97, Diesel, average).
+
+Q5: What is the division inflation heatmap and what can it reveal?
+A: It is a grid where rows are the 13 CPI spending categories (Food, Transport,
+   Health, etc.) and columns are years from 2010 onwards. Each cell shows the mean
+   year-on-year inflation for that category in that year, coloured from green
+   (low) to red (high).
+   Code: src/evaluation.py lines 132-154 (plot_division_inflation_heatmap).
+   The pivot table is at line 141. This reveals which categories drove inflation
+   in specific years — for example, Transport often spikes when fuel subsidies
+   are cut.
+
+Q6: What is the state CPI comparison chart?
+A: A horizontal bar chart comparing each of the 16 Malaysian states by its overall
+   CPI growth rate (percent change from 2010 to the latest available month). States
+   above the median are shown in one colour and below in another, with a dashed
+   median line. This quickly shows which states experienced above-average price
+   growth over the decade.
+   Code: src/evaluation.py lines 98-129 (plot_state_cpi_comparison).
+   The growth calculation is at lines 105-109 (growth inner function).
+
+Q7: What is the income vs CPI scatter plot and why is it important?
+A: It is a scatter where the x-axis is the latest mean household income per state
+   and the y-axis is the state's CPI growth rate. Points are coloured by their
+   cluster label from the clustering analysis. This chart connects the clustering
+   work (Kelvin's part) with the economic narrative: it shows whether higher-income
+   states also experienced higher price growth, and whether the cluster assignments
+   make sense visually.
+   Code: src/evaluation.py lines 175-201 (plot_income_vs_cpi_scatter).
+
+Q8: How did you cross-check key figures against official 2022 numbers?
+A: Malaysia's Department of Statistics (DOSM) publishes an annual statistical report.
+   We compared our computed CPI growth rates and income figures for 2022 against
+   those published numbers to confirm that our preprocessing pipeline was not
+   introducing errors. This is important because data cleaning decisions (like
+   how to handle NaN values or unit conversions) can silently distort results.
+
+Q9: How did you handle the case where fuel data starts later than CPI data?
+A: Fuel price data from OpenDOSM starts from 2017, while CPI inflation goes back
+   to 1980. When computing correlation we use an inner merge on date, so only the
+   overlapping months (2017 onward) are used. The overlap window is stored and
+   reported.
+   Code: src/time_series.py lines 151-156 in compute_fuel_correlation —
+   pd.merge(..., how="inner") automatically handles this.
+   The number of overlapping months and date range are saved at lines 166-169.
+
+Q10: Why include three fuel types (RON95, RON97, Diesel) separately?
+A: Different fuel types affect different economic sectors. RON95 and RON97 are
+   mainly used by private vehicles (consumer transport costs). Diesel powers
+   heavy trucks, buses, and generators — so it has a broader supply-chain impact.
+   By separating them we can see which fuel type has the strongest relationship
+   with headline inflation.
+
+--- KEY CODE LINES (Nigel) ---
+src/preprocessing.py:
+  Lines 65-79  : load_fuelprice — filters to 'level' series, weekly to monthly resample
+  Line 72      : filters series_type == "level" (excludes index/change series)
+  Line 77      : resample("MS").mean() — weekly to monthly conversion
+  Line 78      : avg_fuel computed as mean of the three fuel types
+
+src/time_series.py:
+  Lines 145-170: compute_fuel_correlation — Pearson r contemporaneous + lag-1
+  Lines 159-162: for-loop over ron95, ron97, diesel, avg_fuel; r and r_lag1 computed
+
+src/evaluation.py:
+  Lines 49-95  : plot_fuel_cpi_correlation — dual-panel scatter + bar chart
+  Lines 63-66  : OLS regression line with Pearson r shown on label
+  Lines 75-88  : bar chart of contemporaneous vs lag-1 correlation
+  Lines 98-129 : plot_state_cpi_comparison — horizontal bar by CPI growth rate
+  Lines 116-117: colour logic — blue below median, red above median
+  Lines 132-154: plot_division_inflation_heatmap — RdYlGn heatmap grid
+  Lines 141    : pivot_table rows=division_label, columns=year, values=mean YoY
+  Lines 175-201: plot_income_vs_cpi_scatter — income vs CPI coloured by cluster
+
+
+================================================================================
+SECTION 4: NENG YI CHIENG (104386364)
+Role: Forecasting Co-Lead + System & Dashboard Builder
+Primary files: src/time_series.py (pipeline & charts), run_pipeline.py,
+               app/streamlit_app.py, app/dashboard.py
+================================================================================
+
+--- WHAT NENG YI DID ---
+1. Implemented train/test split, retrain on full data, and 95% confidence intervals.
+2. Built all forecast visualisation charts (history + test + forward forecast).
+3. Produced the 2-year inflation forecast and saved all results to JSON/PKL files.
+4. Added category-level trend charts to explain the forecast context.
+5. Designed the full automated pipeline (run_pipeline.py) that runs all 4 steps.
+6. Built the interactive Streamlit web dashboard with 4 tabs.
+7. Built the Flask API backend (dashboard.py) with SSE live streaming.
+8. Set up large-file storage and organised the overall project structure.
+
+--- Q&A ---
+
+Q1: How does the train/test split work for time series?
+A: Unlike regular machine learning where you can shuffle data, time series must
+   be split in order. We keep all observations except the last 24 months as
+   training data, and the final 24 months are the test set. We never allow the
+   model to see future data during training — this simulates real forecasting.
+   Code: src/time_series.py lines 88-89 (train_test_split_ts function).
+   train = series.iloc[:-24], test = series.iloc[-24:].
+
+Q2: Why retrain on the full dataset for the final forecast?
+A: The test split exists only to measure accuracy. Once we have confirmed the
+   model performs well, we retrain on ALL available data (training + test) before
+   generating the real forward forecast. Using more data gives the model a better
+   picture of recent trends, which improves the 2-year ahead prediction.
+   Code: src/time_series.py lines 568-572 in run_all — fit_arima on full series
+   after evaluation, then saved to arima_fitted.pkl.
+
+Q3: What are the 95% confidence intervals in the forecast plot?
+A: The ARIMA model produces not just a single forecast value but also uncertainty
+   bounds. The 95% confidence interval means that under the model's assumptions,
+   the true future inflation value will fall inside the shaded band 95% of the time.
+   The interval widens as we forecast further into the future because uncertainty
+   accumulates. These come from the ARIMA's in-built get_forecast() method.
+   Code: src/time_series.py lines 82-85 (_extract_forecast function) —
+   fc.conf_int(alpha=0.05) returns the lower and upper bounds.
+   They appear in the plot as the violet shaded region (line 407-412 in plot_forecast).
+
+Q4: Walk me through the forecast chart — what does each element show?
+A: The chart (plot_forecast, lines 384-446) has two panels:
+   Left panel: shows the last 10 years of historical data (blue line), the 24-month
+   test period actual values (green), the model's predictions on the test period
+   (red dashed), the 2-year forward forecast (magenta with triangles), and the
+   violet 95% CI band. A vertical grey dotted line marks where training ended.
+   Right panel: zooms into only the 24-month test period to clearly show actual vs
+   predicted, with the four accuracy metrics displayed in the title.
+   Code: left panel at lines 393-423, right panel at lines 425-440.
+
+Q5: What is the category-level trend chart (plot_division_trends)?
+A: It shows year-on-year inflation for each of the 13 spending categories over
+   the past 5 years, with the overall CPI shown as a thick black line. This helps
+   explain the national forecast — if food and transport are driving the overall
+   number up, the chart makes that visible.
+   Code: src/time_series.py lines 449-477 (plot_division_trends function).
+   The 5-year cutoff is at line 451. Each division is plotted in its own colour
+   using a seaborn tab20 palette.
+
+Q6: How does the automated pipeline work?
+A: run_pipeline.py is the master script. It:
+   1. Changes the working directory to the project root (line 17) so all relative
+      paths work regardless of where Python was invoked from.
+   2. Points matplotlib at a pre-built font cache (lines 22-25) to avoid a
+      2-3 minute delay on cold starts.
+   3. Calls the four stages in order: preprocess → time_series → clustering →
+      evaluation (lines 43-60).
+   4. Then launches Streamlit unless --no-dashboard is passed (lines 70-81).
+   Each stage receives the outputs of the previous stage as Python objects (no
+   re-reading from disk), making the pipeline fast and deterministic.
+   Code: run_pipeline.py — full file is 86 lines.
+
+Q7: Why did you build both a Streamlit dashboard and a Flask API?
+A: The Streamlit dashboard (app/streamlit_app.py) is the user-facing interactive
+   tool with 4 tabs, dropdowns, sliders, and Plotly charts — easy to deploy to
+   Streamlit Cloud for the lecturer to view. The Flask backend (app/dashboard.py)
+   provides REST API endpoints (JSON) and SSE live streaming, which was used when
+   we prototyped a custom HTML frontend. Keeping them separate means either can be
+   used independently.
+
+Q8: What are the four tabs in the Streamlit dashboard?
+A: 1. Overview: national inflation trend, CPI by spending division, state explorer,
+      and a choropleth map of mean CPI across Malaysia.
+   2. Time Series Forecast: shows ARIMA order and metrics, the forecast chart with
+      history and test results, and a horizon slider to interactively re-run for
+      different forecast lengths.
+   3. State Clustering: feature selection dropdowns, side-by-side K-Means vs
+      Hierarchical scatter plots, choropleth cluster map, elbow/silhouette charts,
+      PCA projections, heatmap of cluster profiles, and an interactive dendrogram.
+   4. Fuel Analysis: fuel price time series, correlation bar chart, ARIMAX vs ARIMA
+      comparison table, and fuel coefficient significance.
+
+Q9: What is SSE (Server-Sent Events) and how did you use it?
+A: SSE is a browser technology where the server can push updates to the client over
+   a long-lived HTTP connection without the client polling repeatedly. In the Flask
+   app (dashboard.py), when the user clicks "Run Pipeline", the server spawns the
+   pipeline as a subprocess and streams its stdout line by line as SSE events, so
+   the user sees live progress logs in the browser.
+   In the Streamlit app this is handled differently — we use subprocess and capture
+   output in real time. The run_live generator function in time_series.py (lines
+   268-381) yields progress dicts that the dashboard converts into SSE messages.
+
+Q10: How did you handle caching to avoid re-running expensive steps?
+A: ARIMA order selection (BIC grid search over 24 combinations) and model fitting
+   are expensive. We cache the results in arima_results.json. On the next run, if
+   the series length and order in the cache match the current data, we skip both
+   the grid search and the expensive refits, loading the pre-fitted .pkl model
+   instead. The cache is invalidated automatically if the data changes (different
+   series length).
+   Code: src/time_series.py lines 497-535 in run_all — the cache check logic.
+   Similarly in run_live, lines 284-300.
+   On the Streamlit side, @st.cache_data decorators on loaders prevent re-reading
+   CSVs on every user interaction.
+
+Q11: What is the matplotlib font cache and why did you commit it?
+A: Matplotlib builds a font cache the first time it runs, scanning all system fonts.
+   On cloud platforms (Streamlit Cloud, Render) this can take 2-3 minutes. We
+   pre-built the cache locally and committed the outputs/mpl_cache/ directory to
+   the repo. The pipeline sets MPLCONFIGDIR to point at it (run_pipeline.py line 23
+   and streamlit_app.py line 25), so cloud deployments skip the expensive rebuild.
+
+Q12: How did you organise large file storage?
+A: Dataset CSVs from OpenDOSM are large (the state CPI file is several MB). We used
+   Git LFS (Large File Storage) to track them, so they do not bloat the main git
+   history. The outputs/ directory (figures, models) is also gitignored except for
+   the mpl_cache, since outputs are regenerated by running the pipeline.
+
+--- KEY CODE LINES (Neng Yi) ---
+src/time_series.py:
+  Lines 88-89  : train_test_split_ts — chronological split, last 24 months as test
+  Lines 82-85  : _extract_forecast — extracts mean + 95% CI bounds from ARIMA result
+  Lines 384-446: plot_forecast — 2-panel chart (history+forecast left, test eval right)
+  Lines 407-412: fill_between — the violet 95% CI shaded region
+  Lines 449-477: plot_division_trends — 5-year inflation by spending category
+  Lines 268-381: run_live — SSE generator for browser real-time progress
+  Lines 284-286: reuse logic — skip expensive fits if cache matches series
+  Lines 480-639: run_all — full pipeline orchestrator for time series stage
+  Lines 497-534: cache read logic — reuses arima_results.json if series unchanged
+  Lines 568-572: refit on full series → save to arima_fitted.pkl
+
+run_pipeline.py:
+  Lines 17-25  : set working directory + matplotlib font cache path
+  Lines 43-60  : four-stage pipeline — objects passed directly between stages
+  Lines 70-81  : conditional Streamlit launch (--no-dashboard flag)
+
+app/streamlit_app.py:
+  Lines 28-33  : st.set_page_config — wide layout, custom page title
+  Lines 36-100+: global CSS overrides — hides Streamlit chrome, applies dark blue
+                 header (#1a3c6e) and custom tab styling
+
+app/dashboard.py:
+  Flask REST API with SSE endpoints — run_live streams pipeline output line by line.
+  /api/ts/live endpoint and /api/run endpoint use SSE to push progress to browser.
+
+
+================================================================================
+GENERAL PROJECT Q&A (any team member may be asked)
+================================================================================
+
+Q: What is the overall problem your project addresses?
+A: Malaysia has been experiencing rising cost of living, particularly after the
+   COVID-19 pandemic and fuel subsidy restructuring. Our system uses AI to:
+   1. Forecast national CPI inflation 2 years ahead (ARIMA model).
+   2. Cluster all 16 states by their economic profile (price level + income).
+   3. Analyse whether fuel prices predict or drive inflation.
+   The target audience is government policymakers who need evidence-based tools
+   to understand and respond to cost-of-living pressures.
+
+Q: Where did your data come from?
+A: All four datasets were downloaded from OpenDOSM — Malaysia's official open
+   data portal run by the Department of Statistics Malaysia (DOSM). They are
+   publicly available and regularly updated. We used:
+   - cpi_2d_inflation.csv : national monthly CPI inflation by 14 categories (1980-2026)
+   - cpi_2d_state.csv     : monthly CPI index by state (2010-present)
+   - fuelprice.csv        : weekly retail fuel prices (2017-present)
+   - hh_income_state.csv  : household income survey by state (1970-2022)
+   Code: data/download_datasets.py — the download URLs and filenames.
+
+Q: How does the pipeline ensure reproducibility?
+A: Several mechanisms:
+   1. All random seeds are fixed (random_state=42 in KMeans and PCA).
+   2. The pipeline always runs the same 4 steps in the same order.
+   3. Outputs (JSON, PKL, CSV) are versioned and cached — deleting them triggers
+      a clean rerun from scratch.
+   4. Working directory is set explicitly at the start of run_pipeline.py (line 17)
+      so relative paths work regardless of how the script is invoked.
+
+Q: Why did you use Streamlit for the dashboard?
+A: Streamlit lets us write the entire dashboard in Python without needing
+   JavaScript, HTML, or a separate frontend framework. It integrates directly with
+   pandas DataFrames and Plotly charts, and deploys to Streamlit Cloud with a
+   single push to GitHub. For a data science project with a small team this is far
+   more efficient than building a custom React frontend.
+
+Q: What is the test set size and why 24 months?
+A: We held out the last 24 months (2 years) as the test set. This is long enough
+   to capture seasonal patterns and economic cycles, while still leaving enough
+   training data (40+ years for the national series) for the model to learn from.
+   Two years also matches our forecast horizon, making the evaluation directly
+   comparable to the real prediction task.
+   Code: src/time_series.py line 34 — TEST_MONTHS = 24.
+         Line 35 — FORECAST_HORIZON = 24.
+
+================================================================================
+END OF DOCUMENT
+================================================================================
