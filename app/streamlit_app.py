@@ -567,6 +567,44 @@ def _make_dendrogram(dendro: dict) -> go.Figure:
     return _style(fig)
 
 
+def _make_division_heatmap(df: pd.DataFrame) -> go.Figure:
+    d = df[df["division"] != "overall"].dropna(subset=["inflation_yoy"]).copy()
+    if "year" not in d.columns:
+        d["year"] = d["date"].dt.year
+    d = d[d["year"] >= 2010]
+    pivot = (
+        d.groupby(["division_label", "year"])["inflation_yoy"]
+        .mean()
+        .unstack("year")
+    )
+    years = [str(y) for y in pivot.columns.tolist()]
+    divs  = pivot.index.tolist()
+    z     = pivot.values.tolist()
+    text  = [[f"{v:.1f}" if not np.isnan(v) else "" for v in row] for row in pivot.values]
+
+    fig = go.Figure(go.Heatmap(
+        x=years, y=divs, z=z,
+        text=text, texttemplate="%{text}",
+        textfont=dict(size=10),
+        colorscale="RdYlGn", reversescale=True, zmid=0,
+        colorbar=dict(
+            title=dict(text="Mean YoY<br>Inflation (%)", side="right"),
+            thickness=14,
+        ),
+        hovertemplate="%{y}<br>%{x}: %{z:.2f}%<extra></extra>",
+    ))
+    fig.update_layout(
+        title=dict(
+            text="CPI Division Inflation Heatmap (Annual Mean YoY %)",
+            font=dict(size=13, color=_TEXT, family=_FONT_FAMILY),
+        ),
+        xaxis=dict(title="Year", tickangle=-30),
+        height=480,
+        margin=dict(l=0, r=80, t=44, b=0),
+    )
+    return _style(fig)
+
+
 def _make_state_cpi_growth(df: pd.DataFrame) -> go.Figure:
     overall = df[df["division"] == "overall"].copy()
 
@@ -1007,18 +1045,16 @@ with tab1:
         _style(fig_div)
         st.plotly_chart(fig_div, use_container_width=True)
 
-    # ── Division Inflation Heatmap (static eval figure) ──────────────────────
-    _div_hm_path = os.path.join(FIGURES_DIR, "eval_division_heatmap.png")
-    if os.path.exists(_div_hm_path):
-        with st.container(border=True):
-            st.markdown("""
-            <p class="card-title">Division Inflation Heatmap</p>
-            <p class="card-desc">
-              Mean annual year-on-year inflation per CPI division and year.
-              Darker red cells indicate higher inflation; blue/green cells indicate lower or negative growth.
-            </p>
-            """, unsafe_allow_html=True)
-            _interactive_image(_div_hm_path, "Division Inflation Heatmap")
+    # ── Division Inflation Heatmap (interactive Plotly) ──────────────────────
+    with st.container(border=True):
+        st.markdown("""
+        <p class="card-title">Division Inflation Heatmap</p>
+        <p class="card-desc">
+          Mean annual year-on-year inflation per CPI division and year (2010–present).
+          Red cells = higher inflation; green cells = lower or negative growth. Hover for exact values.
+        </p>
+        """, unsafe_allow_html=True)
+        st.plotly_chart(_make_division_heatmap(cpi_div), use_container_width=True)
 
     # ── State CPI Index Explorer (single state dropdown) ──────────────────────
     with st.container(border=True):
