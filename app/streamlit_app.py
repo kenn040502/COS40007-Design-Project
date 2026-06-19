@@ -567,6 +567,46 @@ def _make_dendrogram(dendro: dict) -> go.Figure:
     return _style(fig)
 
 
+def _make_state_cpi_growth(df: pd.DataFrame) -> go.Figure:
+    overall = df[df["division"] == "overall"].copy()
+
+    def _growth(grp):
+        grp = grp.sort_values("date")
+        if len(grp) < 2:
+            return np.nan
+        return (grp["index"].iloc[-1] - grp["index"].iloc[0]) / grp["index"].iloc[0] * 100
+
+    growth_df = overall.groupby("state").apply(_growth).reset_index()
+    growth_df.columns = ["state", "cpi_growth_pct"]
+    growth_df = growth_df.sort_values("cpi_growth_pct", ascending=True).dropna()
+
+    median_val = growth_df["cpi_growth_pct"].median()
+    colors = ["#2166ac" if v < median_val else "#d73027" for v in growth_df["cpi_growth_pct"]]
+
+    fig = go.Figure(go.Bar(
+        x=growth_df["cpi_growth_pct"],
+        y=growth_df["state"],
+        orientation="h",
+        marker_color=colors,
+        hovertemplate="%{y}: %{x:.1f}%<extra></extra>",
+    ))
+    fig.add_vline(
+        x=median_val, line_dash="dash", line_color="#374151", line_width=1.5,
+        annotation_text=f"Median {median_val:.1f}%",
+        annotation_position="top right",
+        annotation_font=dict(size=10, color="#374151"),
+    )
+    fig.update_layout(
+        title=dict(text="Overall CPI Growth by State (2010 → Latest)",
+                   font=dict(size=13, color=_TEXT, family=_FONT_FAMILY)),
+        xaxis_title="CPI Growth Rate (%)",
+        height=380,
+        margin=dict(l=0, r=20, t=44, b=0),
+        showlegend=False,
+    )
+    return _style(fig)
+
+
 def _make_choropleth_cpi(geojson: dict, df: pd.DataFrame) -> go.Figure:
     locations, z_vals, hover = [], [], []
     for _, row in df.iterrows():
@@ -1289,18 +1329,16 @@ with tab3:
                         unsafe_allow_html=True)
             st.plotly_chart(_make_profiles_heatmap(kmeans_df), use_container_width=True)
 
-    # ── State CPI Growth Comparison (static eval figure) ─────────────────────
-    _st_cpi_path = os.path.join(FIGURES_DIR, "eval_state_cpi_comparison.png")
-    if os.path.exists(_st_cpi_path):
-        with st.container(border=True):
-            st.markdown("""
-            <p class="card-title">State CPI Growth Rate Comparison</p>
-            <p class="card-desc">
-              Horizontal bar chart ranking all 16 Malaysian states by their overall CPI growth rate.
-              States with higher bars have experienced faster cumulative price increases.
-            </p>
-            """, unsafe_allow_html=True)
-            _interactive_image(_st_cpi_path, "State CPI Growth Rate Comparison")
+    # ── State CPI Growth Comparison (interactive Plotly) ─────────────────────
+    with st.container(border=True):
+        st.markdown("""
+        <p class="card-title">State CPI Growth Rate Comparison</p>
+        <p class="card-desc">
+          Overall CPI growth rate per state from 2010 to the latest available month.
+          Blue bars are below the national median; red bars are above it.
+        </p>
+        """, unsafe_allow_html=True)
+        st.plotly_chart(_make_state_cpi_growth(cpi_state), use_container_width=True)
 
     # ── Hierarchical Clustering — Dendrogram ──────────────────────────────────
     with st.container(border=True):
