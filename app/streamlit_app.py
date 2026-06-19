@@ -818,10 +818,10 @@ all_states = sorted(cpi_state["state"].unique().tolist())
 _active_tab = max(0, min(3, int(st.query_params.get("tab", "0"))))
 
 tab1, tab2, tab3, tab4 = st.tabs([
-    "📊  Overview",
-    "📈  Time Series Forecast",
-    "🗂  State Clustering",
-    "⛽  Fuel Analysis",
+    "Overview",
+    "Time Series Forecast",
+    "State Clustering",
+    "Fuel Analysis",
 ])
 
 # Persist active tab in URL so page refresh restores it.
