@@ -865,6 +865,19 @@ with tab1:
         _style(fig_div)
         st.plotly_chart(fig_div, use_container_width=True)
 
+    # ── Division Inflation Heatmap (static eval figure) ──────────────────────
+    _div_hm_path = os.path.join(FIGURES_DIR, "eval_division_heatmap.png")
+    if os.path.exists(_div_hm_path):
+        with st.container(border=True):
+            st.markdown("""
+            <p class="card-title">Division Inflation Heatmap</p>
+            <p class="card-desc">
+              Mean annual year-on-year inflation per CPI division and year.
+              Darker red cells indicate higher inflation; blue/green cells indicate lower or negative growth.
+            </p>
+            """, unsafe_allow_html=True)
+            st.image(_div_hm_path, use_container_width=True)
+
     # ── State CPI Index Explorer (single state dropdown) ──────────────────────
     with st.container(border=True):
         st.markdown("""
@@ -1174,6 +1187,19 @@ with tab3:
                         unsafe_allow_html=True)
             st.plotly_chart(_make_profiles_heatmap(kmeans_df), use_container_width=True)
 
+    # ── State CPI Growth Comparison (static eval figure) ─────────────────────
+    _st_cpi_path = os.path.join(FIGURES_DIR, "eval_state_cpi_comparison.png")
+    if os.path.exists(_st_cpi_path):
+        with st.container(border=True):
+            st.markdown("""
+            <p class="card-title">State CPI Growth Rate Comparison</p>
+            <p class="card-desc">
+              Horizontal bar chart ranking all 16 Malaysian states by their overall CPI growth rate.
+              States with higher bars have experienced faster cumulative price increases.
+            </p>
+            """, unsafe_allow_html=True)
+            st.image(_st_cpi_path, use_container_width=True)
+
     # ── Hierarchical Clustering — Dendrogram ──────────────────────────────────
     with st.container(border=True):
         st.markdown("""
@@ -1277,6 +1303,19 @@ with tab4:
             )
             _style(fig_corr)
             st.plotly_chart(fig_corr, use_container_width=True)
+
+    # ── Fuel-CPI Correlation (static eval figure) ────────────────────────────
+    _fuel_corr_path = os.path.join(FIGURES_DIR, "eval_fuel_cpi_correlation.png")
+    if os.path.exists(_fuel_corr_path):
+        with st.container(border=True):
+            st.markdown("""
+            <p class="card-title">Fuel Price vs CPI Correlation — Evaluation Chart</p>
+            <p class="card-desc">
+              Scatter plots of each fuel type against national CPI YoY inflation alongside
+              Pearson correlation bars (contemporaneous and lag-1) from the evaluation pipeline.
+            </p>
+            """, unsafe_allow_html=True)
+            st.image(_fuel_corr_path, use_container_width=True)
 
     # ── ARIMAX vs ARIMA ───────────────────────────────────────────────────────
     exog_exp = arima.get("fuel_exog_experiment", {})
