@@ -81,6 +81,7 @@ footer { display: none !important; }
   border-bottom: 2px solid #d1d5db !important;
   gap: 0 !important;
   margin-bottom: 1.5rem !important;
+  justify-content: center !important;
 }
 button[data-testid="stTab"] {
   height: 48px !important;
