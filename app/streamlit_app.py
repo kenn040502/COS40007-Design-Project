@@ -815,8 +815,6 @@ cpi_state["date"] = pd.to_datetime(cpi_state["date"])
 all_states = sorted(cpi_state["state"].unique().tolist())
 
 # ─── Tabs ────────────────────────────────────────────────────────────────────
-_active_tab = max(0, min(3, int(st.query_params.get("tab", "0"))))
-
 tab1, tab2, tab3, tab4 = st.tabs([
     "Overview",
     "Time Series Forecast",
@@ -824,28 +822,45 @@ tab1, tab2, tab3, tab4 = st.tabs([
     "Fuel Analysis",
 ])
 
-# Persist active tab in URL so page refresh restores it.
-# components.html re-runs on every Streamlit render, so listeners stay fresh.
-components.html(f"""
+# Persist active tab across page refreshes using localStorage.
+# par.__stTabRestored is a flag on the parent window that survives Streamlit
+# widget reruns (which don't reload the page) but resets on a real F5 refresh.
+# This ensures the restore-click fires exactly once per page load.
+components.html("""
 <script>
-(function(){{
-  var T = {_active_tab};
-  function setup() {{
-    var btns = window.parent.document.querySelectorAll('button[data-testid="stTab"]');
-    if (!btns.length) {{ setTimeout(setup, 60); return; }}
-    if (btns[T] && btns[T].getAttribute('aria-selected') !== 'true') btns[T].click();
-    btns.forEach(function(b, i) {{
+(function() {
+  var par = window.parent;
+
+  function attach() {
+    var btns = par.document.querySelectorAll('button[data-testid="stTab"]');
+    if (!btns.length) { setTimeout(attach, 80); return; }
+    btns.forEach(function(b, i) {
       if (b._ql) return;
       b._ql = true;
-      b.addEventListener('click', function() {{
-        var u = new URL(window.parent.location.href);
-        u.searchParams.set('tab', i);
-        window.parent.history.replaceState(null, '', u);
-      }});
-    }});
-  }}
-  setTimeout(setup, 150);
-}})();
+      b.addEventListener('click', function() {
+        localStorage.setItem('st_active_tab', i);
+      });
+    });
+  }
+
+  function restore() {
+    var t = parseInt(localStorage.getItem('st_active_tab') || '0', 10);
+    if (t === 0) { par.__stTabRestored = true; return; }
+    var tries = 0;
+    function tryClick() {
+      var btns = par.document.querySelectorAll('button[data-testid="stTab"]');
+      if (!btns.length && tries++ < 20) { setTimeout(tryClick, 100); return; }
+      par.__stTabRestored = true;
+      if (btns[t] && btns[t].getAttribute('aria-selected') !== 'true') {
+        btns[t].click();
+      }
+    }
+    tryClick();
+  }
+
+  if (!par.__stTabRestored) restore();
+  setTimeout(attach, 300);
+})();
 </script>
 """, height=0)
 
