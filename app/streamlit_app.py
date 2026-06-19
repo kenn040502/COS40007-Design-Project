@@ -6,6 +6,7 @@ import os
 import sys
 import json
 import html as _html
+import base64
 import urllib.request
 import subprocess
 
@@ -635,6 +636,62 @@ def _make_choropleth_cluster(geojson: dict, df: pd.DataFrame) -> go.Figure:
     return fig
 
 
+# ─── Interactive image (hover zoom + click lightbox) ────────────────────────
+def _interactive_image(path: str, alt: str = "") -> None:
+    with open(path, "rb") as f:
+        b64 = base64.b64encode(f.read()).decode()
+    uid = abs(hash(path)) % 10 ** 9
+    st.markdown(f"""
+<style>
+#img-wrap-{uid} {{
+    position: relative; width: 100%; cursor: zoom-in;
+    border-radius: 6px; overflow: hidden;
+}}
+#img-wrap-{uid} img {{
+    width: 100%; display: block; border-radius: 6px;
+    transition: transform 0.25s ease, box-shadow 0.25s ease;
+}}
+#img-wrap-{uid}:hover img {{
+    transform: scale(1.015);
+    box-shadow: 0 6px 28px rgba(0,0,0,0.22);
+}}
+#img-wrap-{uid}::after {{
+    content: "🔍 Click to expand";
+    position: absolute; bottom: 12px; right: 14px;
+    background: rgba(26,60,110,0.82); color: #fff;
+    font-size: 0.78rem; padding: 4px 10px; border-radius: 4px;
+    opacity: 0; transition: opacity 0.2s; pointer-events: none;
+}}
+#img-wrap-{uid}:hover::after {{ opacity: 1; }}
+#overlay-{uid} {{
+    display: none; position: fixed; top: 0; left: 0;
+    width: 100vw; height: 100vh;
+    background: rgba(0,0,0,0.88); z-index: 99999;
+    cursor: zoom-out; align-items: center; justify-content: center;
+}}
+#overlay-{uid}.open {{ display: flex; }}
+#overlay-{uid} img {{
+    max-width: 92vw; max-height: 92vh;
+    border-radius: 8px; box-shadow: 0 12px 60px rgba(0,0,0,0.5);
+}}
+#overlay-close-{uid} {{
+    position: fixed; top: 16px; right: 20px;
+    color: #fff; font-size: 1.8rem; cursor: pointer;
+    z-index: 100000; line-height: 1; user-select: none;
+}}
+</style>
+<div id="img-wrap-{uid}"
+     onclick="document.getElementById('overlay-{uid}').classList.add('open')">
+  <img src="data:image/png;base64,{b64}" alt="{alt}" />
+</div>
+<div id="overlay-{uid}" onclick="this.classList.remove('open')">
+  <span id="overlay-close-{uid}"
+        onclick="event.stopPropagation();document.getElementById('overlay-{uid}').classList.remove('open')">✕</span>
+  <img src="data:image/png;base64,{b64}" alt="{alt}" />
+</div>
+""", unsafe_allow_html=True)
+
+
 # ─── HTML table helper ───────────────────────────────────────────────────────
 def _html_table(df: pd.DataFrame) -> None:
     headers = "".join(f"<th>{_html.escape(str(c))}</th>" for c in df.columns)
@@ -876,7 +933,7 @@ with tab1:
               Darker red cells indicate higher inflation; blue/green cells indicate lower or negative growth.
             </p>
             """, unsafe_allow_html=True)
-            st.image(_div_hm_path, use_container_width=True)
+            _interactive_image(_div_hm_path, "Division Inflation Heatmap")
 
     # ── State CPI Index Explorer (single state dropdown) ──────────────────────
     with st.container(border=True):
@@ -1198,7 +1255,7 @@ with tab3:
               States with higher bars have experienced faster cumulative price increases.
             </p>
             """, unsafe_allow_html=True)
-            st.image(_st_cpi_path, use_container_width=True)
+            _interactive_image(_st_cpi_path, "State CPI Growth Rate Comparison")
 
     # ── Hierarchical Clustering — Dendrogram ──────────────────────────────────
     with st.container(border=True):
@@ -1315,7 +1372,7 @@ with tab4:
               Pearson correlation bars (contemporaneous and lag-1) from the evaluation pipeline.
             </p>
             """, unsafe_allow_html=True)
-            st.image(_fuel_corr_path, use_container_width=True)
+            _interactive_image(_fuel_corr_path, "Fuel Price vs CPI Correlation")
 
     # ── ARIMAX vs ARIMA ───────────────────────────────────────────────────────
     exog_exp = arima.get("fuel_exog_experiment", {})
