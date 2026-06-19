@@ -10,6 +10,8 @@ import base64
 import urllib.request
 import subprocess
 
+import streamlit.components.v1 as components
+
 import numpy as np
 import pandas as pd
 import plotly.graph_objects as go
@@ -813,12 +815,39 @@ cpi_state["date"] = pd.to_datetime(cpi_state["date"])
 all_states = sorted(cpi_state["state"].unique().tolist())
 
 # ─── Tabs ────────────────────────────────────────────────────────────────────
+_active_tab = max(0, min(3, int(st.query_params.get("tab", "0"))))
+
 tab1, tab2, tab3, tab4 = st.tabs([
     "📊  Overview",
     "📈  Time Series Forecast",
     "🗂  State Clustering",
     "⛽  Fuel Analysis",
 ])
+
+# Persist active tab in URL so page refresh restores it.
+# components.html re-runs on every Streamlit render, so listeners stay fresh.
+components.html(f"""
+<script>
+(function(){{
+  var T = {_active_tab};
+  function setup() {{
+    var btns = window.parent.document.querySelectorAll('button[data-testid="stTab"]');
+    if (!btns.length) {{ setTimeout(setup, 60); return; }}
+    if (btns[T] && btns[T].getAttribute('aria-selected') !== 'true') btns[T].click();
+    btns.forEach(function(b, i) {{
+      if (b._ql) return;
+      b._ql = true;
+      b.addEventListener('click', function() {{
+        var u = new URL(window.parent.location.href);
+        u.searchParams.set('tab', i);
+        window.parent.history.replaceState(null, '', u);
+      }});
+    }});
+  }}
+  setTimeout(setup, 150);
+}})();
+</script>
+""", height=0)
 
 
 # ══════════════════════════════════════════════════════════════════════════════
