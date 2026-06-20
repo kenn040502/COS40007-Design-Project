@@ -1039,7 +1039,7 @@ with tab1:
         fig_div.update_layout(
             xaxis_title="Date", yaxis_title="YoY Inflation (%)",
             height=460, margin=dict(l=0, r=0, t=10, b=0),
-            legend=dict(font_size=10, x=1.01, y=1),
+            legend=dict(font_size=10, x=1.01, y=0.7),
             hovermode="x unified",
         )
         _style(fig_div)
